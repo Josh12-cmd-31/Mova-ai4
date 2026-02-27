@@ -1,0 +1,7 @@
+{
+  "name": "mova ai",
+  "description": "Advanced multimodal AI system for reasoning, image editing, and strategic analysis.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
