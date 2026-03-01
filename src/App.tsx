@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { motion } from 'motion/react';
+import { motion, AnimatePresence } from 'motion/react';
 import { 
   LayoutDashboard, 
   MessageSquare, 
@@ -14,74 +14,90 @@ import {
 import ChatInterface from './components/ChatInterface';
 
 export default function App() {
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   return (
-    <div className="flex h-screen bg-brand-bg overflow-hidden">
+    <div className="flex h-screen bg-white overflow-hidden text-zinc-900">
+      {/* Mobile Sidebar Overlay */}
+      <AnimatePresence>
+        {isSidebarOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setIsSidebarOpen(false)}
+            className="fixed inset-0 bg-black/20 backdrop-blur-sm z-40 lg:hidden"
+          />
+        )}
+      </AnimatePresence>
+
       {/* Sidebar */}
       <motion.aside 
         initial={false}
-        animate={{ width: isSidebarOpen ? 280 : 0, opacity: isSidebarOpen ? 1 : 0 }}
-        className="bg-white border-r border-zinc-200 flex flex-col overflow-hidden"
+        animate={{ 
+          width: isSidebarOpen ? 260 : 0,
+          x: isSidebarOpen ? 0 : -260
+        }}
+        transition={{ type: 'spring', damping: 20, stiffness: 150 }}
+        className="fixed lg:relative inset-y-0 left-0 z-50 bg-zinc-50 border-r border-zinc-200 flex flex-col overflow-hidden"
       >
-        <div className="p-6 flex items-center gap-3 border-b border-zinc-100">
-          <div className="w-10 h-10 bg-brand-ink rounded-xl flex items-center justify-center text-white">
-            <Zap size={24} />
+        <div className="p-4 flex items-center justify-between border-b border-zinc-200/50">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 bg-zinc-900 rounded-lg flex items-center justify-center text-white">
+              <Zap size={18} />
+            </div>
+            <h1 className="font-semibold text-sm tracking-tight">mova ai</h1>
           </div>
-          <div>
-            <h1 className="font-bold text-lg tracking-tight">mova ai</h1>
-            <p className="text-[10px] text-zinc-400 font-mono uppercase tracking-widest">Strategic Intel</p>
-          </div>
+          <button 
+            onClick={() => setIsSidebarOpen(false)}
+            className="lg:hidden p-1 hover:bg-zinc-200 rounded-md transition-colors"
+          >
+            <X size={18} />
+          </button>
         </div>
 
-        <nav className="flex-1 p-4 space-y-2">
-          <NavItem icon={<MessageSquare size={18} />} label="Intelligence Chat" active />
-          <NavItem icon={<ImageIcon size={18} />} label="Visual Lab" />
-          <NavItem icon={<LayoutDashboard size={18} />} label="Strategic Analysis" />
-          
-          <div className="pt-8 pb-2 px-2">
-            <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Capabilities</span>
+        <nav className="flex-1 p-2 space-y-1 overflow-y-auto">
+          <NavItem icon={<MessageSquare size={16} />} label="New Chat" active />
+          <div className="py-2 px-3">
+            <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">History</span>
           </div>
-          <NavItem icon={<Cpu size={18} />} label="Neural Processing" />
-          <NavItem icon={<Shield size={18} />} label="Secure Analysis" />
+          <NavItem icon={<MessageSquare size={16} />} label="Previous analysis" />
+          <NavItem icon={<ImageIcon size={16} />} label="Image generation" />
         </nav>
 
-        <div className="p-4 border-t border-zinc-100">
-          <button className="w-full flex items-center gap-3 p-3 rounded-xl text-zinc-500 hover:bg-zinc-50 transition-colors">
-            <Settings size={18} />
-            <span className="text-sm font-medium">System Settings</span>
+        <div className="p-2 border-t border-zinc-200/50">
+          <button className="w-full flex items-center gap-3 p-2.5 rounded-lg text-zinc-600 hover:bg-zinc-200 transition-colors text-sm">
+            <Settings size={16} />
+            <span>Settings</span>
           </button>
         </div>
       </motion.aside>
 
       {/* Main Content */}
-      <main className="flex-1 flex flex-col min-w-0 relative">
-        {/* Header */}
-        <header className="h-16 bg-white/50 backdrop-blur-sm border-b border-zinc-200 flex items-center justify-between px-6 z-10">
-          <div className="flex items-center gap-4">
-            <button 
-              onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-              className="p-2 hover:bg-zinc-100 rounded-lg transition-colors text-zinc-500"
-            >
-              {isSidebarOpen ? <X size={20} /> : <Menu size={20} />}
-            </button>
-            <div className="flex items-center gap-2">
-              <span className="w-2 h-2 bg-brand-accent rounded-full animate-pulse" />
-              <span className="text-xs font-medium text-zinc-500 uppercase tracking-wider">System Online</span>
-            </div>
+      <main className="flex-1 flex flex-col min-w-0 relative bg-white">
+        {/* Mobile Header */}
+        <header className="h-14 flex items-center justify-between px-4 border-b border-zinc-100 lg:border-none">
+          <button 
+            onClick={() => setIsSidebarOpen(true)}
+            className="p-2 -ml-2 hover:bg-zinc-100 rounded-lg transition-colors text-zinc-500 lg:hidden"
+          >
+            <Menu size={20} />
+          </button>
+          
+          <div className="flex items-center gap-1.5 lg:hidden">
+            <span className="font-semibold text-sm">mova ai</span>
           </div>
 
-          <div className="flex items-center gap-3">
-            <div className="hidden sm:flex flex-col items-end">
-              <span className="text-xs font-bold">Expert Reasoning</span>
-              <span className="text-[10px] text-zinc-400">v2.5.0-stable</span>
+          <div className="flex items-center gap-2">
+            <div className="hidden lg:flex items-center gap-2 px-3 py-1.5 rounded-full bg-zinc-50 border border-zinc-200 text-[10px] font-medium text-zinc-500 uppercase tracking-wider">
+              <span className="w-1.5 h-1.5 bg-brand-accent rounded-full" />
+              System Online
             </div>
-            <div className="w-8 h-8 rounded-full bg-zinc-100 border border-zinc-200" />
           </div>
         </header>
 
         {/* Chat Area */}
-        <div className="flex-1 overflow-hidden">
+        <div className="flex-1 overflow-hidden relative">
           <ChatInterface />
         </div>
       </main>
@@ -91,14 +107,13 @@ export default function App() {
 
 function NavItem({ icon, label, active = false }: { icon: React.ReactNode, label: string, active?: boolean }) {
   return (
-    <button className={`w-full flex items-center gap-3 p-3 rounded-xl transition-all ${
+    <button className={`w-full flex items-center gap-3 p-2.5 rounded-lg transition-all text-sm ${
       active 
-        ? 'bg-zinc-900 text-white shadow-md' 
-        : 'text-zinc-500 hover:bg-zinc-50'
+        ? 'bg-zinc-200 text-zinc-900 font-medium' 
+        : 'text-zinc-600 hover:bg-zinc-200'
     }`}>
       {icon}
-      <span className="text-sm font-medium">{label}</span>
-      {active && <motion.div layoutId="active-pill" className="ml-auto w-1.5 h-1.5 bg-brand-accent rounded-full" />}
+      <span className="truncate">{label}</span>
     </button>
   );
 }

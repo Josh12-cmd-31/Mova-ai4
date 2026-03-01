@@ -4,7 +4,6 @@ import {
   Send, 
   Image as ImageIcon, 
   Paperclip, 
-  Sparkles, 
   User, 
   Bot, 
   Loader2, 
@@ -13,7 +12,8 @@ import {
   Maximize2,
   Download,
   AlertCircle,
-  RefreshCcw
+  RefreshCcw,
+  Plus
 } from 'lucide-react';
 import { chatWithGemini, analyzeImage, editImage, GeminiError } from '../services/gemini';
 
@@ -103,12 +103,10 @@ export default function ChatInterface() {
 
       setMessages(prev => [...prev, assistantMessage]);
       
-      // If we got an edited image, we might want to set it as the new "selected" image for further edits
       if (editedImage) {
         setSelectedImage(editedImage);
         setImageMimeType('image/png');
       } else {
-        // Clear image after analysis if not editing
         if (!isEditingMode) {
           setSelectedImage(null);
         }
@@ -136,186 +134,176 @@ export default function ChatInterface() {
   };
 
   return (
-    <div className="flex flex-col h-full max-w-5xl mx-auto px-4 py-6">
+    <div className="flex flex-col h-full bg-white">
       {/* Chat History */}
       <div 
         ref={scrollRef}
-        className="flex-1 overflow-y-auto space-y-6 mb-6 pr-2 scrollbar-thin scrollbar-thumb-zinc-200"
+        className="flex-1 overflow-y-auto scrollbar-hide"
       >
-        <AnimatePresence initial={false}>
-          {messages.map((msg) => (
-            <motion.div
-              key={msg.id}
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
-            >
-              <div className={`flex gap-3 max-w-[85%] ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}>
-                <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${
-                  msg.role === 'user' ? 'bg-zinc-200' : 'bg-brand-accent text-white'
-                }`}>
-                  {msg.role === 'user' ? <User size={16} /> : <Bot size={16} />}
-                </div>
-                <div className={`space-y-2 ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
-                  <div className={`p-4 rounded-2xl ${
-                    msg.role === 'user' 
-                      ? 'bg-zinc-900 text-white rounded-tr-none' 
-                      : msg.isError 
-                        ? 'bg-red-50 border border-red-100 text-red-900 rounded-tl-none'
-                        : 'bg-white border border-zinc-100 shadow-sm rounded-tl-none'
+        <div className="max-w-3xl mx-auto px-4 py-8 space-y-8">
+          <AnimatePresence initial={false}>
+            {messages.map((msg) => (
+              <motion.div
+                key={msg.id}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+              >
+                <div className={`flex gap-4 w-full ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}>
+                  <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 border border-zinc-200 ${
+                    msg.role === 'user' ? 'bg-zinc-100' : 'bg-white'
                   }`}>
-                    {msg.isError && (
-                      <div className="flex items-center gap-2 mb-2 text-red-600 font-bold text-[10px] uppercase tracking-wider">
-                        <AlertCircle size={12} />
-                        System Error: {msg.errorCode}
+                    {msg.role === 'user' ? <User size={16} /> : <Bot size={16} />}
+                  </div>
+                  <div className={`flex-1 min-w-0 ${msg.role === 'user' ? 'flex flex-col items-end' : ''}`}>
+                    <div className={`max-w-[90%] md:max-w-[85%] ${
+                      msg.role === 'user' 
+                        ? 'bg-zinc-100 p-3 rounded-2xl text-zinc-900' 
+                        : 'text-zinc-900'
+                    }`}>
+                      {msg.isError && (
+                        <div className="flex items-center gap-2 mb-2 text-red-600 font-bold text-[10px] uppercase tracking-wider">
+                          <AlertCircle size={12} />
+                          System Error: {msg.errorCode}
+                        </div>
+                      )}
+                      {msg.image && (
+                        <div className="mb-3 relative group">
+                          <img 
+                            src={msg.image} 
+                            alt="Uploaded content" 
+                            className="rounded-xl max-h-80 object-contain bg-zinc-50 border border-zinc-100 shadow-sm"
+                          />
+                          <a 
+                            href={msg.image} 
+                            download="mova-ai-image.png"
+                            className="absolute top-2 right-2 p-2 bg-black/50 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                          >
+                            <Download size={14} />
+                          </a>
+                        </div>
+                      )}
+                      <div className="prose prose-sm max-w-none prose-zinc leading-relaxed">
+                        {msg.content.split('\n').map((line, i) => (
+                          <p key={i} className="mb-3 last:mb-0">{line}</p>
+                        ))}
                       </div>
-                    )}
-                    {msg.image && (
-                      <div className="mb-3 relative group">
-                        <img 
-                          src={msg.image} 
-                          alt="Uploaded content" 
-                          className="rounded-lg max-h-64 object-contain bg-zinc-50"
-                        />
-                        <a 
-                          href={msg.image} 
-                          download="mova-ai-image.png"
-                          className="absolute top-2 right-2 p-2 bg-black/50 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
-                        >
-                          <Download size={14} />
-                        </a>
-                      </div>
-                    )}
-                    <div className="prose prose-sm max-w-none prose-zinc dark:prose-invert">
-                      {msg.content.split('\n').map((line, i) => (
-                        <p key={i} className="mb-2 last:mb-0">{line}</p>
-                      ))}
                     </div>
                   </div>
                 </div>
-              </div>
-            </motion.div>
-          ))}
-        </AnimatePresence>
-        {isLoading && (
-          <div className="flex justify-start">
-            <div className="flex gap-3 max-w-[85%]">
-              <div className="w-8 h-8 rounded-full bg-brand-accent text-white flex items-center justify-center shrink-0">
-                <Loader2 size={16} className="animate-spin" />
-              </div>
-              <div className="p-4 bg-white border border-zinc-100 shadow-sm rounded-2xl rounded-tl-none">
-                <div className="flex gap-1">
+              </motion.div>
+            ))}
+          </AnimatePresence>
+          {isLoading && (
+            <div className="flex justify-start">
+              <div className="flex gap-4 w-full">
+                <div className="w-8 h-8 rounded-full bg-white border border-zinc-200 flex items-center justify-center shrink-0">
+                  <Loader2 size={16} className="animate-spin text-zinc-400" />
+                </div>
+                <div className="flex gap-1.5 items-center h-8">
                   <span className="w-1.5 h-1.5 bg-zinc-300 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
                   <span className="w-1.5 h-1.5 bg-zinc-300 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
                   <span className="w-1.5 h-1.5 bg-zinc-300 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
                 </div>
               </div>
             </div>
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
       {/* Input Area */}
-      <div className="relative">
-        {/* Image Preview */}
-        <AnimatePresence>
-          {selectedImage && (
-            <motion.div 
-              initial={{ opacity: 0, y: 20, scale: 0.95 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: 20, scale: 0.95 }}
-              className="absolute bottom-full left-0 mb-4 p-2 bg-white border border-zinc-200 rounded-xl shadow-lg flex items-center gap-3"
-            >
-              <div className="relative w-16 h-16 rounded-lg overflow-hidden border border-zinc-100">
-                <img 
-                  src={`data:${imageMimeType};base64,${selectedImage}`} 
-                  alt="Preview" 
-                  className="w-full h-full object-cover"
-                />
-                <button 
-                  onClick={() => setSelectedImage(null)}
-                  className="absolute top-0 right-0 p-0.5 bg-black/50 text-white rounded-bl-lg hover:bg-black/70"
-                >
-                  <X size={12} />
-                </button>
-              </div>
-              <div className="flex flex-col gap-1 pr-2">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">Image Context</span>
-                <button 
-                  onClick={() => setIsEditingMode(!isEditingMode)}
-                  className={`flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium transition-colors ${
-                    isEditingMode 
-                      ? 'bg-brand-accent/10 text-brand-accent border border-brand-accent/20' 
-                      : 'bg-zinc-100 text-zinc-600 border border-transparent'
-                  }`}
-                >
-                  {isEditingMode ? <Wand2 size={12} /> : <ImageIcon size={12} />}
-                  {isEditingMode ? 'Editing Mode' : 'Analysis Mode'}
-                </button>
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        <form 
-          onSubmit={handleSubmit}
-          className="relative flex items-end gap-2 p-2 bg-white border border-zinc-200 rounded-2xl shadow-sm focus-within:border-brand-accent/50 transition-colors"
-        >
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            className="p-2.5 text-zinc-400 hover:text-brand-accent transition-colors"
-          >
-            <Paperclip size={20} />
-          </button>
-          <input 
-            type="file" 
-            ref={fileInputRef}
-            onChange={handleImageUpload}
-            accept="image/*"
-            className="hidden"
-          />
-          
-          <textarea
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                handleSubmit();
-              }
-            }}
-            placeholder={isEditingMode ? "Describe the edits you want..." : "Ask mova ai anything..."}
-            className="flex-1 max-h-32 min-h-[44px] py-2.5 bg-transparent border-none focus:ring-0 text-sm resize-none"
-            rows={1}
-          />
-
-          <button
-            type="submit"
-            disabled={(!input.trim() && !selectedImage) || isLoading}
-            className={`p-2.5 rounded-xl transition-all ${
-              (!input.trim() && !selectedImage) || isLoading
-                ? 'text-zinc-300 bg-zinc-50'
-                : 'text-white bg-brand-accent hover:bg-brand-accent/90 shadow-sm'
-            }`}
-          >
-            {isLoading ? <Loader2 size={20} className="animate-spin" /> : <Send size={20} />}
-          </button>
-        </form>
-        <div className="mt-2 flex justify-between items-center px-2">
-          <div className="flex items-center gap-4">
-            <span className="text-[10px] text-zinc-400 flex items-center gap-1">
-              <Sparkles size={10} /> Powered by Gemini 3.1 Pro
-            </span>
-            {isEditingMode && (
-              <span className="text-[10px] text-brand-accent font-medium flex items-center gap-1">
-                <Wand2 size={10} /> Image Editing Active
-              </span>
+      <div className="max-w-3xl w-full mx-auto px-4 pb-6 pt-2">
+        <div className="relative">
+          {/* Image Preview */}
+          <AnimatePresence>
+            {selectedImage && (
+              <motion.div 
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 10 }}
+                className="absolute bottom-full left-0 mb-3 p-2 bg-white border border-zinc-200 rounded-xl shadow-lg flex items-center gap-3"
+              >
+                <div className="relative w-14 h-14 rounded-lg overflow-hidden border border-zinc-100">
+                  <img 
+                    src={`data:${imageMimeType};base64,${selectedImage}`} 
+                    alt="Preview" 
+                    className="w-full h-full object-cover"
+                  />
+                  <button 
+                    onClick={() => setSelectedImage(null)}
+                    className="absolute top-0 right-0 p-0.5 bg-black/50 text-white rounded-bl-lg hover:bg-black/70"
+                  >
+                    <X size={12} />
+                  </button>
+                </div>
+                <div className="flex flex-col gap-1 pr-2">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">Visual Context</span>
+                  <button 
+                    onClick={() => setIsEditingMode(!isEditingMode)}
+                    className={`flex items-center gap-1.5 px-2 py-1 rounded-md text-[10px] font-bold uppercase transition-colors ${
+                      isEditingMode 
+                        ? 'bg-zinc-900 text-white' 
+                        : 'bg-zinc-100 text-zinc-600'
+                    }`}
+                  >
+                    {isEditingMode ? <Wand2 size={10} /> : <ImageIcon size={10} />}
+                    {isEditingMode ? 'Editing' : 'Analysis'}
+                  </button>
+                </div>
+              </motion.div>
             )}
+          </AnimatePresence>
+
+          <form 
+            onSubmit={handleSubmit}
+            className="relative flex items-end gap-2 p-1.5 bg-zinc-100 border border-zinc-200 rounded-3xl focus-within:bg-white focus-within:ring-1 focus-within:ring-zinc-200 transition-all"
+          >
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="p-2 text-zinc-500 hover:text-zinc-900 transition-colors"
+            >
+              <Plus size={20} />
+            </button>
+            <input 
+              type="file" 
+              ref={fileInputRef}
+              onChange={handleImageUpload}
+              accept="image/*"
+              className="hidden"
+            />
+            
+            <textarea
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  handleSubmit();
+                }
+              }}
+              placeholder={isEditingMode ? "Describe edits..." : "Message mova ai..."}
+              className="flex-1 max-h-48 min-h-[40px] py-2 bg-transparent border-none focus:ring-0 text-sm resize-none"
+              rows={1}
+            />
+
+            <button
+              type="submit"
+              disabled={(!input.trim() && !selectedImage) || isLoading}
+              className={`p-2 rounded-full transition-all ${
+                (!input.trim() && !selectedImage) || isLoading
+                  ? 'text-zinc-300'
+                  : 'text-white bg-zinc-900 hover:bg-zinc-800 shadow-sm'
+              }`}
+            >
+              {isLoading ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}
+            </button>
+          </form>
+          <div className="mt-2 flex justify-center">
+            <span className="text-[10px] text-zinc-400 font-medium">
+              mova ai can make mistakes. Check important info.
+            </span>
           </div>
-          <span className="text-[10px] text-zinc-400">
-            Shift + Enter for new line
-          </span>
         </div>
       </div>
     </div>
