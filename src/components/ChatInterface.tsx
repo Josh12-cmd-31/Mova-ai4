@@ -13,9 +13,10 @@ import {
   Download,
   AlertCircle,
   RefreshCcw,
-  Plus
+  Plus,
+  Sparkles
 } from 'lucide-react';
-import { chatWithGemini, analyzeImage, editImage, GeminiError } from '../services/gemini';
+import { chatWithGemini, analyzeImage, editImage, generateImage, GeminiError } from '../services/gemini';
 
 interface Message {
   id: string;
@@ -32,7 +33,7 @@ export default function ChatInterface() {
     {
       id: '1',
       role: 'assistant',
-      content: "Hello, I am **mova ai**. I am ready to assist you with complex reasoning, document analysis, and advanced image editing. How can I help you today?"
+      content: "How can I help you today?"
     }
   ]);
   const [input, setInput] = useState('');
@@ -40,6 +41,7 @@ export default function ChatInterface() {
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [imageMimeType, setImageMimeType] = useState<string>('');
   const [isEditingMode, setIsEditingMode] = useState(false);
+  const [isGenerationMode, setIsGenerationMode] = useState(false);
   
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -90,6 +92,10 @@ export default function ChatInterface() {
         } else {
           responseText = await analyzeImage(selectedImage, input);
         }
+      } else if (isGenerationMode) {
+        const result = await generateImage(input);
+        responseText = result.textResponse || "I've generated an image for you.";
+        editedImage = result.generatedImageB64;
       } else {
         responseText = await chatWithGemini(input);
       }
@@ -256,15 +262,35 @@ export default function ChatInterface() {
 
           <form 
             onSubmit={handleSubmit}
-            className="relative flex items-end gap-2 p-1.5 bg-zinc-100 border border-zinc-200 rounded-3xl focus-within:bg-white focus-within:ring-1 focus-within:ring-zinc-200 transition-all"
+            className={`relative flex items-end gap-2 p-1.5 border rounded-3xl transition-all ${
+              isGenerationMode && !selectedImage
+                ? 'bg-zinc-900 border-zinc-800 text-white focus-within:ring-zinc-700'
+                : 'bg-zinc-100 border-zinc-200 focus-within:bg-white focus-within:ring-zinc-200'
+            }`}
           >
-            <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              className="p-2 text-zinc-500 hover:text-zinc-900 transition-colors"
-            >
-              <Plus size={20} />
-            </button>
+            <div className="flex items-center">
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className={`p-2 transition-colors ${
+                  isGenerationMode && !selectedImage ? 'text-zinc-400 hover:text-white' : 'text-zinc-500 hover:text-zinc-900'
+                }`}
+              >
+                <Plus size={20} />
+              </button>
+              {!selectedImage && (
+                <button
+                  type="button"
+                  onClick={() => setIsGenerationMode(!isGenerationMode)}
+                  className={`p-2 transition-colors ${
+                    isGenerationMode ? 'text-brand-accent' : 'text-zinc-500 hover:text-zinc-900'
+                  }`}
+                  title="Toggle Image Generation"
+                >
+                  <Sparkles size={18} />
+                </button>
+              )}
+            </div>
             <input 
               type="file" 
               ref={fileInputRef}
@@ -282,8 +308,14 @@ export default function ChatInterface() {
                   handleSubmit();
                 }
               }}
-              placeholder={isEditingMode ? "Describe edits..." : "Message mova ai..."}
-              className="flex-1 max-h-48 min-h-[40px] py-2 bg-transparent border-none focus:ring-0 text-sm resize-none"
+              placeholder={
+                selectedImage 
+                  ? (isEditingMode ? "Describe edits..." : "Ask about image...") 
+                  : (isGenerationMode ? "Describe image to generate..." : "Message mova ai...")
+              }
+              className={`flex-1 max-h-48 min-h-[40px] py-2 bg-transparent border-none focus:ring-0 text-sm resize-none ${
+                isGenerationMode && !selectedImage ? 'placeholder-zinc-500 text-white' : 'text-zinc-900'
+              }`}
               rows={1}
             />
 
@@ -293,7 +325,9 @@ export default function ChatInterface() {
               className={`p-2 rounded-full transition-all ${
                 (!input.trim() && !selectedImage) || isLoading
                   ? 'text-zinc-300'
-                  : 'text-white bg-zinc-900 hover:bg-zinc-800 shadow-sm'
+                  : isGenerationMode && !selectedImage
+                    ? 'text-zinc-900 bg-white hover:bg-zinc-200 shadow-sm'
+                    : 'text-white bg-zinc-900 hover:bg-zinc-800 shadow-sm'
               }`}
             >
               {isLoading ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}

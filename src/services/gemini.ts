@@ -79,6 +79,42 @@ export async function chatWithGemini(message: string, history: any[] = []) {
   handleGeminiError(lastError);
 }
 
+export async function generateImage(prompt: string) {
+  try {
+    const ai = getGeminiModel();
+    const response = await ai.models.generateContent({
+      model: "gemini-2.5-flash-image",
+      contents: {
+        parts: [
+          {
+            text: prompt,
+          },
+        ],
+      },
+    });
+
+    let generatedImageB64: string | null = null;
+    let textResponse: string = "";
+
+    const candidates = response.candidates || [];
+    if (candidates.length === 0) {
+      throw new GeminiError("No image was generated. The request might have been blocked.", "NO_CANDIDATES");
+    }
+
+    for (const part of candidates[0].content.parts || []) {
+      if (part.inlineData) {
+        generatedImageB64 = part.inlineData.data;
+      } else if (part.text) {
+        textResponse += part.text;
+      }
+    }
+
+    return { generatedImageB64, textResponse };
+  } catch (error) {
+    handleGeminiError(error);
+  }
+}
+
 export async function editImage(imageB64: string, prompt: string, mimeType: string = "image/png") {
   let attempts = 0;
   const maxAttempts = 2;
