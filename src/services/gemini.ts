@@ -31,7 +31,7 @@ function handleGeminiError(error: any): never {
   }
 
   if (status === 429 || message.includes("quota")) {
-    throw new GeminiError("Rate limit exceeded. Please wait a moment before trying again.", "RATE_LIMIT");
+    throw new GeminiError("Rate limit exceeded. The system is currently busy. Please wait about 30-60 seconds before trying again.", "RATE_LIMIT");
   }
 
   if (message.includes("network") || message.includes("fetch")) {
@@ -79,19 +79,31 @@ export async function chatWithGemini(message: string, history: any[] = []) {
   handleGeminiError(lastError);
 }
 
+async function generateImageWithRetry(ai: any, modelName: string, prompt: string, retries = 5): Promise<GenerateContentResponse> {
+  try {
+    const response = await ai.models.generateContent({
+      model: modelName,
+      contents: {
+        parts: [{ text: prompt }],
+      },
+    });
+    return response;
+  } catch (error: any) {
+    const isRateLimit = error.status === 429 || (error.message && (error.message.includes("429") || error.message.includes("quota") || error.message.includes("Rate limit")));
+    if (isRateLimit && retries > 0) {
+      const delayTime = (6 - retries) * 2000;
+      console.warn(`Rate limited, retrying in ${delayTime}ms... (${retries} retries left)`);
+      await delay(delayTime);
+      return generateImageWithRetry(ai, modelName, prompt, retries - 1);
+    }
+    throw error;
+  }
+}
+
 export async function generateImage(prompt: string) {
   try {
     const ai = getGeminiModel();
-    const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash-image",
-      contents: {
-        parts: [
-          {
-            text: prompt,
-          },
-        ],
-      },
-    });
+    const response = await generateImageWithRetry(ai, "gemini-2.5-flash-image", prompt);
 
     let generatedImageB64: string | null = null;
     let textResponse: string = "";
