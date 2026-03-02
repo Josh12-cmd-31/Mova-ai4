@@ -42,6 +42,8 @@ export default function ChatInterface() {
   const [imageMimeType, setImageMimeType] = useState<string>('');
   const [isEditingMode, setIsEditingMode] = useState(false);
   const [isGenerationMode, setIsGenerationMode] = useState(false);
+  const [selectedImageModel, setSelectedImageModel] = useState('gemini-2.5-flash-image');
+  const [selectedChatModel, setSelectedChatModel] = useState('gemini-3.1-pro-preview');
   
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -86,18 +88,18 @@ export default function ChatInterface() {
 
       if (selectedImage) {
         if (isEditingMode) {
-          const result = await editImage(selectedImage, input || "Enhance this image");
+          const result = await editImage(selectedImage, input || "Enhance this image", selectedImageModel);
           responseText = result.textResponse || "I've processed your image edit request.";
           editedImage = result.editedImageB64;
         } else {
           responseText = await analyzeImage(selectedImage, input);
         }
       } else if (isGenerationMode) {
-        const result = await generateImage(input);
+        const result = await generateImage(input, selectedImageModel);
         responseText = result.textResponse || "I've generated an image for you.";
         editedImage = result.generatedImageB64;
       } else {
-        responseText = await chatWithGemini(input);
+        responseText = await chatWithGemini(input, [], selectedChatModel);
       }
 
       const assistantMessage: Message = {
@@ -141,6 +143,28 @@ export default function ChatInterface() {
 
   return (
     <div className="flex flex-col h-full bg-white">
+      {/* Header with Model Selection */}
+      <div className="shrink-0 h-14 border-b border-zinc-100 flex items-center justify-between px-4 bg-white/80 backdrop-blur-md sticky top-0 z-20">
+        <div className="flex items-center gap-2">
+          <div className="w-8 h-8 rounded-lg bg-zinc-900 flex items-center justify-center text-white font-bold text-xs">
+            M
+          </div>
+          <span className="font-semibold text-sm text-zinc-900">mova ai</span>
+        </div>
+        
+        <div className="flex items-center gap-2">
+          <select 
+            value={selectedChatModel}
+            onChange={(e) => setSelectedChatModel(e.target.value)}
+            className="bg-zinc-50 text-zinc-600 text-[11px] font-bold uppercase px-3 py-1.5 rounded-full border border-zinc-200 focus:ring-0 cursor-pointer hover:bg-zinc-100 transition-colors"
+          >
+            <option value="gemini-3.1-pro-preview">Pro 3.1</option>
+            <option value="gemini-3-flash-preview">Flash 3</option>
+            <option value="gemini-flash-lite-latest">Flash Lite</option>
+          </select>
+        </div>
+      </div>
+
       {/* Chat History */}
       <div 
         ref={scrollRef}
@@ -244,17 +268,30 @@ export default function ChatInterface() {
                 </div>
                 <div className="flex flex-col gap-1 pr-2">
                   <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">Visual Context</span>
-                  <button 
-                    onClick={() => setIsEditingMode(!isEditingMode)}
-                    className={`flex items-center gap-1.5 px-2 py-1 rounded-md text-[10px] font-bold uppercase transition-colors ${
-                      isEditingMode 
-                        ? 'bg-zinc-900 text-white' 
-                        : 'bg-zinc-100 text-zinc-600'
-                    }`}
-                  >
-                    {isEditingMode ? <Wand2 size={10} /> : <ImageIcon size={10} />}
-                    {isEditingMode ? 'Editing' : 'Analysis'}
-                  </button>
+                  <div className="flex gap-1">
+                    <button 
+                      onClick={() => setIsEditingMode(!isEditingMode)}
+                      className={`flex items-center gap-1.5 px-2 py-1 rounded-md text-[10px] font-bold uppercase transition-colors ${
+                        isEditingMode 
+                          ? 'bg-zinc-900 text-white' 
+                          : 'bg-zinc-100 text-zinc-600'
+                      }`}
+                    >
+                      {isEditingMode ? <Wand2 size={10} /> : <ImageIcon size={10} />}
+                      {isEditingMode ? 'Editing' : 'Analysis'}
+                    </button>
+                    {isEditingMode && (
+                      <select 
+                        value={selectedImageModel}
+                        onChange={(e) => setSelectedImageModel(e.target.value)}
+                        className="bg-zinc-100 text-zinc-600 text-[10px] font-bold uppercase px-2 py-1 rounded-md border-none focus:ring-0"
+                      >
+                        <option value="gemini-2.5-flash-image">Flash</option>
+                        <option value="gemini-3.1-flash-image-preview">Flash HQ</option>
+                        <option value="gemini-3-pro-image-preview">Pro</option>
+                      </select>
+                    )}
+                  </div>
                 </div>
               </motion.div>
             )}
@@ -279,16 +316,32 @@ export default function ChatInterface() {
                 <Plus size={20} />
               </button>
               {!selectedImage && (
-                <button
-                  type="button"
-                  onClick={() => setIsGenerationMode(!isGenerationMode)}
-                  className={`p-2 transition-colors ${
-                    isGenerationMode ? 'text-brand-accent' : 'text-zinc-500 hover:text-zinc-900'
-                  }`}
-                  title="Toggle Image Generation"
-                >
-                  <Sparkles size={18} />
-                </button>
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => setIsGenerationMode(!isGenerationMode)}
+                    className={`p-2 transition-colors ${
+                      isGenerationMode ? 'text-brand-accent' : 'text-zinc-500 hover:text-zinc-900'
+                    }`}
+                    title="Toggle Image Generation"
+                  >
+                    <Sparkles size={18} />
+                  </button>
+                  {isGenerationMode && (
+                    <select 
+                      value={selectedImageModel}
+                      onChange={(e) => setSelectedImageModel(e.target.value)}
+                      className={`text-[10px] font-bold uppercase px-2 py-1 rounded-md border-none focus:ring-0 transition-colors ${
+                        isGenerationMode ? 'bg-zinc-800 text-zinc-300' : 'bg-zinc-200 text-zinc-600'
+                      }`}
+                    >
+                      <option value="gemini-2.5-flash-image">Flash</option>
+                      <option value="gemini-3.1-flash-image-preview">Flash HQ</option>
+                      <option value="gemini-3-pro-image-preview">Pro</option>
+                      <option value="imagen-4.0-generate-001">Imagen 4</option>
+                    </select>
+                  )}
+                </div>
               )}
             </div>
             <input 

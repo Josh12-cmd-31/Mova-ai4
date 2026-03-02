@@ -43,12 +43,17 @@ function handleGeminiError(error: any): never {
 
 const delay = (ms: number) => new Promise(res => setTimeout(res, ms));
 
-export async function chatWithGemini(message: string, history: any[] = []) {
-  const models = ["gemini-3.1-pro-preview", "gemini-3-flash-preview", "gemini-flash-lite-latest"];
+export async function chatWithGemini(message: string, history: any[] = [], selectedModel?: string) {
+  const models = selectedModel 
+    ? [selectedModel, "gemini-3.1-pro-preview", "gemini-3-flash-preview", "gemini-flash-lite-latest"]
+    : ["gemini-3.1-pro-preview", "gemini-3-flash-preview", "gemini-flash-lite-latest"];
+  
+  // Remove duplicates while preserving order
+  const uniqueModels = Array.from(new Set(models));
   let lastError: any = null;
 
-  for (let i = 0; i < models.length; i++) {
-    const model = models[i];
+  for (let i = 0; i < uniqueModels.length; i++) {
+    const model = uniqueModels[i];
     try {
       const ai = getGeminiModel();
       const chat = ai.chats.create({
@@ -100,10 +105,27 @@ async function generateImageWithRetry(ai: any, modelName: string, prompt: string
   }
 }
 
-export async function generateImage(prompt: string) {
+export async function generateImage(prompt: string, model: string = "gemini-2.5-flash-image") {
   try {
     const ai = getGeminiModel();
-    const response = await generateImageWithRetry(ai, "gemini-2.5-flash-image", prompt);
+    
+    // Handle Imagen models differently
+    if (model.startsWith("imagen-")) {
+      const response = await ai.models.generateImages({
+        model: model,
+        prompt: prompt,
+        config: {
+          numberOfImages: 1,
+          aspectRatio: "1:1",
+        },
+      });
+      
+      const generatedImageB64 = response.generatedImages[0].image.imageBytes;
+      return { generatedImageB64, textResponse: "Image generated using Imagen." };
+    }
+
+    // Handle Nano Banana series
+    const response = await generateImageWithRetry(ai, model, prompt);
 
     let generatedImageB64: string | null = null;
     let textResponse: string = "";
@@ -127,7 +149,7 @@ export async function generateImage(prompt: string) {
   }
 }
 
-export async function editImage(imageB64: string, prompt: string, mimeType: string = "image/png") {
+export async function editImage(imageB64: string, prompt: string, model: string = "gemini-2.5-flash-image", mimeType: string = "image/png") {
   let attempts = 0;
   const maxAttempts = 2;
   
@@ -135,7 +157,7 @@ export async function editImage(imageB64: string, prompt: string, mimeType: stri
     try {
       const ai = getGeminiModel();
       const response = await ai.models.generateContent({
-        model: "gemini-2.5-flash-image",
+        model: model,
         contents: {
           parts: [
             {
