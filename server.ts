@@ -2,6 +2,7 @@ import express from "express";
 import { createServer as createViteServer } from "vite";
 import path from "path";
 import { fileURLToPath } from "url";
+import { Orchestrator } from "./server/orchestrator.ts";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -15,6 +16,21 @@ async function startServer() {
   // API routes
   app.get("/api/health", (req, res) => {
     res.json({ status: "ok" });
+  });
+
+  app.post("/api/orchestrate", async (req, res) => {
+    try {
+      const { prompt } = req.body;
+      if (!prompt) {
+        return res.status(400).json({ error: "Prompt is required" });
+      }
+      const orchestrator = new Orchestrator();
+      const result = await orchestrator.runSequential(prompt);
+      res.json(result);
+    } catch (error: any) {
+      console.error("Orchestration Error:", error);
+      res.status(500).json({ error: error.message || "An error occurred during orchestration" });
+    }
   });
 
   // Vite middleware for development

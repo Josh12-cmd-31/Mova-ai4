@@ -14,7 +14,10 @@ import {
   AlertCircle,
   RefreshCcw,
   Plus,
-  Sparkles
+  Sparkles,
+  Layers,
+  Info,
+  Cpu
 } from 'lucide-react';
 import { chatWithGemini, analyzeImage, editImage, generateImage, GeminiError } from '../services/gemini';
 
@@ -42,6 +45,7 @@ export default function ChatInterface() {
   const [imageMimeType, setImageMimeType] = useState<string>('');
   const [isEditingMode, setIsEditingMode] = useState(false);
   const [isGenerationMode, setIsGenerationMode] = useState(false);
+  const [isOrchestrationMode, setIsOrchestrationMode] = useState(false);
   const [selectedImageModel, setSelectedImageModel] = useState('gemini-2.5-flash-image');
   const [selectedChatModel, setSelectedChatModel] = useState('gemini-3.1-pro-preview');
   
@@ -98,6 +102,18 @@ export default function ChatInterface() {
         const result = await generateImage(input, selectedImageModel);
         responseText = result.textResponse || "I've generated an image for you.";
         editedImage = result.generatedImageB64;
+      } else if (isOrchestrationMode) {
+        const response = await fetch('/api/orchestrate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prompt: input })
+        });
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.error || "Orchestration failed");
+        }
+        const data = await response.json();
+        responseText = data.finalResult;
       } else {
         responseText = await chatWithGemini(input, [], selectedChatModel);
       }
@@ -142,21 +158,55 @@ export default function ChatInterface() {
   };
 
   return (
-    <div className="flex flex-col h-full bg-white">
+    <div className="flex flex-col h-full bg-brand-bg text-brand-ink">
       {/* Header with Model Selection */}
-      <div className="shrink-0 h-14 border-b border-zinc-100 flex items-center justify-between px-4 bg-white/80 backdrop-blur-md sticky top-0 z-20">
+      <div className="shrink-0 h-14 border-b border-white/5 flex items-center justify-between px-4 bg-brand-bg/80 backdrop-blur-md sticky top-0 z-20">
         <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-lg bg-zinc-900 flex items-center justify-center text-white font-bold text-xs">
+          <div className="w-8 h-8 rounded-lg bg-zinc-100 flex items-center justify-center text-zinc-900 font-bold text-xs">
             M
           </div>
-          <span className="font-semibold text-sm text-zinc-900">mova ai</span>
+          <span className="font-semibold text-sm text-zinc-100">mova ai</span>
         </div>
         
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-4">
+          {/* Model Status Indicator */}
+          <div className="flex items-center gap-3 px-3 py-1.5 bg-zinc-900 rounded-full border border-white/5 group relative cursor-help">
+            <div className="flex items-center gap-1.5">
+              <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+              <span className="hidden sm:inline text-[10px] font-bold uppercase tracking-wider text-zinc-400">System Active</span>
+              <Info size={12} className="sm:hidden text-zinc-400" />
+            </div>
+            
+            {/* Tooltip */}
+            <div className="absolute top-full right-0 mt-2 w-64 p-3 bg-zinc-900 rounded-xl shadow-xl border border-white/5 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50">
+              <div className="space-y-3">
+                <div>
+                  <div className="flex items-center gap-2 mb-1">
+                    <Cpu size={12} className="text-zinc-500" />
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">Chat Engine</span>
+                  </div>
+                  <div className="text-xs font-semibold text-zinc-100">
+                    {isOrchestrationMode ? "4-Agent Orchestrator" : selectedChatModel.split('-').map(s => s.charAt(0).toUpperCase() + s.slice(1)).join(' ')}
+                  </div>
+                </div>
+                <div className="h-px bg-white/5" />
+                <div>
+                  <div className="flex items-center gap-2 mb-1">
+                    <ImageIcon size={12} className="text-zinc-500" />
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">Visual Engine</span>
+                  </div>
+                  <div className="text-xs font-semibold text-zinc-100">
+                    {selectedImageModel.split('-').map(s => s.charAt(0).toUpperCase() + s.slice(1)).join(' ')}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <select 
             value={selectedChatModel}
             onChange={(e) => setSelectedChatModel(e.target.value)}
-            className="bg-zinc-50 text-zinc-600 text-[11px] font-bold uppercase px-3 py-1.5 rounded-full border border-zinc-200 focus:ring-0 cursor-pointer hover:bg-zinc-100 transition-colors"
+            className="bg-zinc-900 text-zinc-400 text-[11px] font-bold uppercase px-3 py-1.5 rounded-full border border-white/5 focus:ring-0 cursor-pointer hover:bg-zinc-800 transition-colors"
           >
             <option value="gemini-3.1-pro-preview">Pro 3.1</option>
             <option value="gemini-3-flash-preview">Flash 3</option>
@@ -180,16 +230,16 @@ export default function ChatInterface() {
                 className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
               >
                 <div className={`flex gap-4 w-full ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}>
-                  <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 border border-zinc-200 ${
-                    msg.role === 'user' ? 'bg-zinc-100' : 'bg-white'
+                  <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 border border-white/5 ${
+                    msg.role === 'user' ? 'bg-zinc-800' : 'bg-zinc-900'
                   }`}>
-                    {msg.role === 'user' ? <User size={16} /> : <Bot size={16} />}
+                    {msg.role === 'user' ? <User size={16} className="text-zinc-400" /> : <Bot size={16} className="text-zinc-400" />}
                   </div>
                   <div className={`flex-1 min-w-0 ${msg.role === 'user' ? 'flex flex-col items-end' : ''}`}>
                     <div className={`max-w-[90%] md:max-w-[85%] ${
                       msg.role === 'user' 
-                        ? 'bg-zinc-100 p-3 rounded-2xl text-zinc-900' 
-                        : 'text-zinc-900'
+                        ? 'bg-zinc-800 p-3 rounded-2xl text-zinc-100' 
+                        : 'text-zinc-100'
                     }`}>
                       {msg.isError && (
                         <div className="flex items-center gap-2 mb-2 text-red-600 font-bold text-[10px] uppercase tracking-wider">
@@ -202,7 +252,7 @@ export default function ChatInterface() {
                           <img 
                             src={msg.image} 
                             alt="Uploaded content" 
-                            className="rounded-xl max-h-80 object-contain bg-zinc-50 border border-zinc-100 shadow-sm"
+                            className="rounded-xl max-h-80 object-contain bg-zinc-900 border border-white/5 shadow-sm"
                           />
                           <a 
                             href={msg.image} 
@@ -227,13 +277,13 @@ export default function ChatInterface() {
           {isLoading && (
             <div className="flex justify-start">
               <div className="flex gap-4 w-full">
-                <div className="w-8 h-8 rounded-full bg-white border border-zinc-200 flex items-center justify-center shrink-0">
-                  <Loader2 size={16} className="animate-spin text-zinc-400" />
+                <div className="w-8 h-8 rounded-full bg-zinc-900 border border-white/5 flex items-center justify-center shrink-0">
+                  <Loader2 size={16} className="animate-spin text-zinc-500" />
                 </div>
                 <div className="flex gap-1.5 items-center h-8">
-                  <span className="w-1.5 h-1.5 bg-zinc-300 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                  <span className="w-1.5 h-1.5 bg-zinc-300 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                  <span className="w-1.5 h-1.5 bg-zinc-300 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                  <span className="w-1.5 h-1.5 bg-zinc-700 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                  <span className="w-1.5 h-1.5 bg-zinc-700 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                  <span className="w-1.5 h-1.5 bg-zinc-700 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
                 </div>
               </div>
             </div>
@@ -251,9 +301,9 @@ export default function ChatInterface() {
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: 10 }}
-                className="absolute bottom-full left-0 mb-3 p-2 bg-white border border-zinc-200 rounded-xl shadow-lg flex items-center gap-3"
+                className="absolute bottom-full left-0 mb-3 p-2 bg-zinc-900 border border-white/5 rounded-xl shadow-lg flex items-center gap-3"
               >
-                <div className="relative w-14 h-14 rounded-lg overflow-hidden border border-zinc-100">
+                <div className="relative w-14 h-14 rounded-lg overflow-hidden border border-white/5">
                   <img 
                     src={`data:${imageMimeType};base64,${selectedImage}`} 
                     alt="Preview" 
@@ -267,14 +317,14 @@ export default function ChatInterface() {
                   </button>
                 </div>
                 <div className="flex flex-col gap-1 pr-2">
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">Visual Context</span>
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">Visual Context</span>
                   <div className="flex gap-1">
                     <button 
                       onClick={() => setIsEditingMode(!isEditingMode)}
                       className={`flex items-center gap-1.5 px-2 py-1 rounded-md text-[10px] font-bold uppercase transition-colors ${
                         isEditingMode 
-                          ? 'bg-zinc-900 text-white' 
-                          : 'bg-zinc-100 text-zinc-600'
+                          ? 'bg-zinc-100 text-zinc-900' 
+                          : 'bg-zinc-800 text-zinc-400'
                       }`}
                     >
                       {isEditingMode ? <Wand2 size={10} /> : <ImageIcon size={10} />}
@@ -284,7 +334,7 @@ export default function ChatInterface() {
                       <select 
                         value={selectedImageModel}
                         onChange={(e) => setSelectedImageModel(e.target.value)}
-                        className="bg-zinc-100 text-zinc-600 text-[10px] font-bold uppercase px-2 py-1 rounded-md border-none focus:ring-0"
+                        className="bg-zinc-800 text-zinc-400 text-[10px] font-bold uppercase px-2 py-1 rounded-md border-none focus:ring-0"
                       >
                         <option value="gemini-2.5-flash-image">Flash</option>
                         <option value="gemini-3.1-flash-image-preview">Flash HQ</option>
@@ -300,9 +350,9 @@ export default function ChatInterface() {
           <form 
             onSubmit={handleSubmit}
             className={`relative flex items-end gap-2 p-1.5 border rounded-3xl transition-all ${
-              isGenerationMode && !selectedImage
-                ? 'bg-zinc-900 border-zinc-800 text-white focus-within:ring-zinc-700'
-                : 'bg-zinc-100 border-zinc-200 focus-within:bg-white focus-within:ring-zinc-200'
+              (isGenerationMode || isOrchestrationMode) && !selectedImage
+                ? 'bg-zinc-900 border-white/10 text-white focus-within:ring-zinc-700'
+                : 'bg-zinc-900 border-white/5 focus-within:bg-zinc-800 focus-within:ring-white/10'
             }`}
           >
             <div className="flex items-center">
@@ -310,7 +360,7 @@ export default function ChatInterface() {
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
                 className={`p-2 transition-colors ${
-                  isGenerationMode && !selectedImage ? 'text-zinc-400 hover:text-white' : 'text-zinc-500 hover:text-zinc-900'
+                  (isGenerationMode || isOrchestrationMode) && !selectedImage ? 'text-zinc-500 hover:text-white' : 'text-zinc-500 hover:text-zinc-300'
                 }`}
               >
                 <Plus size={20} />
@@ -321,18 +371,28 @@ export default function ChatInterface() {
                     type="button"
                     onClick={() => setIsGenerationMode(!isGenerationMode)}
                     className={`p-2 transition-colors ${
-                      isGenerationMode ? 'text-brand-accent' : 'text-zinc-500 hover:text-zinc-900'
+                      isGenerationMode ? 'text-brand-accent' : 'text-zinc-500 hover:text-zinc-300'
                     }`}
                     title="Toggle Image Generation"
                   >
                     <Sparkles size={18} />
                   </button>
-                  {isGenerationMode && (
+                  <button
+                    type="button"
+                    onClick={() => setIsOrchestrationMode(!isOrchestrationMode)}
+                    className={`p-2 transition-colors ${
+                      isOrchestrationMode ? 'text-indigo-400' : 'text-zinc-500 hover:text-zinc-300'
+                    }`}
+                    title="Toggle Sequential Orchestration"
+                  >
+                    <Layers size={18} />
+                  </button>
+                  {(isGenerationMode || isOrchestrationMode) && (
                     <select 
                       value={selectedImageModel}
                       onChange={(e) => setSelectedImageModel(e.target.value)}
                       className={`text-[10px] font-bold uppercase px-2 py-1 rounded-md border-none focus:ring-0 transition-colors ${
-                        isGenerationMode ? 'bg-zinc-800 text-zinc-300' : 'bg-zinc-200 text-zinc-600'
+                        isGenerationMode || isOrchestrationMode ? 'bg-zinc-800 text-zinc-400' : 'bg-zinc-800 text-zinc-400'
                       }`}
                     >
                       <option value="gemini-2.5-flash-image">Flash</option>
@@ -364,10 +424,10 @@ export default function ChatInterface() {
               placeholder={
                 selectedImage 
                   ? (isEditingMode ? "Describe edits..." : "Ask about image...") 
-                  : (isGenerationMode ? "Describe image to generate..." : "Message mova ai...")
+                  : (isGenerationMode ? "Describe image to generate..." : isOrchestrationMode ? "Describe complex task for orchestration..." : "Message mova ai...")
               }
               className={`flex-1 max-h-48 min-h-[40px] py-2 bg-transparent border-none focus:ring-0 text-sm resize-none ${
-                isGenerationMode && !selectedImage ? 'placeholder-zinc-500 text-white' : 'text-zinc-900'
+                (isGenerationMode || isOrchestrationMode) && !selectedImage ? 'placeholder-zinc-500 text-zinc-100' : 'text-zinc-100'
               }`}
               rows={1}
             />
@@ -377,10 +437,10 @@ export default function ChatInterface() {
               disabled={(!input.trim() && !selectedImage) || isLoading}
               className={`p-2 rounded-full transition-all ${
                 (!input.trim() && !selectedImage) || isLoading
-                  ? 'text-zinc-300'
-                  : isGenerationMode && !selectedImage
-                    ? 'text-zinc-900 bg-white hover:bg-zinc-200 shadow-sm'
-                    : 'text-white bg-zinc-900 hover:bg-zinc-800 shadow-sm'
+                  ? 'text-zinc-700'
+                  : (isGenerationMode || isOrchestrationMode) && !selectedImage
+                    ? 'text-zinc-900 bg-zinc-100 hover:bg-white shadow-sm'
+                    : 'text-zinc-900 bg-zinc-100 hover:bg-white shadow-sm'
               }`}
             >
               {isLoading ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}
