@@ -11,15 +11,36 @@ import {
   Shield,
   Cpu,
   LogIn,
-  LogOut
+  LogOut,
+  Mail,
+  Lock,
+  User as UserIcon
 } from 'lucide-react';
 import ChatInterface from './components/ChatInterface';
-import { auth, googleProvider, signInWithPopup, signOut, onAuthStateChanged, User } from './services/firebase';
+import { 
+  auth, 
+  googleProvider, 
+  signInWithPopup, 
+  signOut, 
+  onAuthStateChanged, 
+  User,
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  updateProfile
+} from './services/firebase';
 
 export default function App() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  
+  // Auth Form State
+  const [isSignUp, setIsSignUp] = useState(false);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [displayName, setDisplayName] = useState('');
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [authLoading, setAuthLoading] = useState(false);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
@@ -29,11 +50,35 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  const handleLogin = async () => {
+  const handleGoogleLogin = async () => {
+    setAuthError(null);
     try {
       await signInWithPopup(auth, googleProvider);
-    } catch (error) {
+    } catch (error: any) {
       console.error("Login failed", error);
+      setAuthError(error.message || "Google login failed");
+    }
+  };
+
+  const handleEmailAuth = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthError(null);
+    setAuthLoading(true);
+
+    try {
+      if (isSignUp) {
+        const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+        if (displayName) {
+          await updateProfile(userCredential.user, { displayName });
+        }
+      } else {
+        await signInWithEmailAndPassword(auth, email, password);
+      }
+    } catch (error: any) {
+      console.error("Auth failed", error);
+      setAuthError(error.message || "Authentication failed");
+    } finally {
+      setAuthLoading(false);
     }
   };
 
@@ -60,22 +105,100 @@ export default function App() {
 
   if (!user) {
     return (
-      <div className="h-screen w-screen flex items-center justify-center bg-brand-bg text-brand-ink p-4">
-        <div className="max-w-md w-full glass-panel p-8 rounded-3xl flex flex-col items-center text-center gap-6">
+      <div className="h-screen w-screen flex items-center justify-center bg-brand-bg text-brand-ink p-4 overflow-y-auto">
+        <div className="max-w-md w-full glass-panel p-8 rounded-3xl flex flex-col items-center gap-6 my-8">
           <div className="w-16 h-16 bg-zinc-100 rounded-2xl flex items-center justify-center text-zinc-900 shadow-xl">
             <Zap size={32} />
           </div>
-          <div className="space-y-2">
-            <h1 className="text-2xl font-bold tracking-tight">Welcome to mova ai</h1>
-            <p className="text-zinc-400 text-sm">Sign in to start your intelligent journey.</p>
+          
+          <div className="space-y-2 text-center">
+            <h1 className="text-2xl font-bold tracking-tight">
+              {isSignUp ? 'Create an account' : 'Welcome back'}
+            </h1>
+            <p className="text-zinc-400 text-sm">
+              {isSignUp ? 'Join mova ai to start your journey' : 'Sign in to continue your intelligent journey'}
+            </p>
           </div>
+
+          <form onSubmit={handleEmailAuth} className="w-full space-y-4">
+            {isSignUp && (
+              <div className="relative">
+                <UserIcon className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" size={18} />
+                <input
+                  type="text"
+                  placeholder="Full Name"
+                  value={displayName}
+                  onChange={(e) => setDisplayName(e.target.value)}
+                  className="w-full bg-zinc-900 border border-white/10 rounded-xl py-3 pl-10 pr-4 text-sm focus:outline-none focus:border-white/20 transition-colors"
+                  required={isSignUp}
+                />
+              </div>
+            )}
+            
+            <div className="relative">
+              <Mail className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" size={18} />
+              <input
+                type="email"
+                placeholder="Email address"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="w-full bg-zinc-900 border border-white/10 rounded-xl py-3 pl-10 pr-4 text-sm focus:outline-none focus:border-white/20 transition-colors"
+                required
+              />
+            </div>
+
+            <div className="relative">
+              <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" size={18} />
+              <input
+                type="password"
+                placeholder="Password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full bg-zinc-900 border border-white/10 rounded-xl py-3 pl-10 pr-4 text-sm focus:outline-none focus:border-white/20 transition-colors"
+                required
+              />
+            </div>
+
+            {authError && (
+              <p className="text-red-400 text-xs text-center px-2">{authError}</p>
+            )}
+
+            <button 
+              type="submit"
+              disabled={authLoading}
+              className="w-full bg-zinc-100 text-zinc-900 py-3 rounded-xl font-semibold hover:bg-white transition-all shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {authLoading ? 'Processing...' : (isSignUp ? 'Sign Up' : 'Sign In')}
+            </button>
+          </form>
+
+          <div className="w-full flex items-center gap-4">
+            <div className="h-px flex-1 bg-white/5" />
+            <span className="text-[10px] text-zinc-500 uppercase font-bold">OR</span>
+            <div className="h-px flex-1 bg-white/5" />
+          </div>
+
           <button 
-            onClick={handleLogin}
-            className="w-full flex items-center justify-center gap-3 bg-zinc-100 text-zinc-900 py-3 rounded-xl font-semibold hover:bg-white transition-all shadow-lg"
+            onClick={handleGoogleLogin}
+            className="w-full flex items-center justify-center gap-3 bg-zinc-900 border border-white/10 text-zinc-100 py-3 rounded-xl font-medium hover:bg-zinc-800 transition-all"
           >
             <LogIn size={20} />
             Continue with Google
           </button>
+
+          <p className="text-sm text-zinc-400">
+            {isSignUp ? 'Already have an account?' : "Don't have an account?"}{' '}
+            <button 
+              onClick={() => {
+                setIsSignUp(!isSignUp);
+                setAuthError(null);
+              }}
+              className="text-zinc-100 font-semibold hover:underline"
+            >
+              {isSignUp ? 'Sign In' : 'Sign Up'}
+            </button>
+          </p>
+
           <p className="text-[10px] text-zinc-500 uppercase tracking-widest font-bold">Secure Authentication via Firebase</p>
         </div>
       </div>
