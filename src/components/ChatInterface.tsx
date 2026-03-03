@@ -136,6 +136,20 @@ export default function ChatInterface({ initialMessages, onUpdateMessages }: Cha
         errorCode = error.code || "GEMINI_ERROR";
       }
 
+      // Safety check: if errorMessage is still a JSON string, try to extract the message
+      if (typeof errorMessage === 'string' && errorMessage.trim().startsWith('{')) {
+        try {
+          const parsed = JSON.parse(errorMessage);
+          if (parsed.error && parsed.error.message) {
+            errorMessage = parsed.error.message;
+          } else if (parsed.message) {
+            errorMessage = parsed.message;
+          }
+        } catch (e) {
+          // Not valid JSON or no message property, keep original
+        }
+      }
+
       setMessages(prev => [...prev, {
         id: Date.now().toString(),
         role: 'assistant',
