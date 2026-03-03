@@ -26,7 +26,8 @@ import {
   User,
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
-  updateProfile
+  updateProfile,
+  sendEmailVerification
 } from './services/firebase';
 
 export default function App() {
@@ -41,6 +42,7 @@ export default function App() {
   const [displayName, setDisplayName] = useState('');
   const [authError, setAuthError] = useState<string | null>(null);
   const [authLoading, setAuthLoading] = useState(false);
+  const [verificationSent, setVerificationSent] = useState(false);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
@@ -52,6 +54,7 @@ export default function App() {
 
   const handleGoogleLogin = async () => {
     setAuthError(null);
+    setVerificationSent(false);
     try {
       await signInWithPopup(auth, googleProvider);
     } catch (error: any) {
@@ -64,6 +67,7 @@ export default function App() {
     e.preventDefault();
     setAuthError(null);
     setAuthLoading(true);
+    setVerificationSent(false);
 
     try {
       if (isSignUp) {
@@ -71,6 +75,13 @@ export default function App() {
         if (displayName) {
           await updateProfile(userCredential.user, { displayName });
         }
+        await sendEmailVerification(userCredential.user);
+        await signOut(auth);
+        setVerificationSent(true);
+        setIsSignUp(false);
+        setEmail('');
+        setPassword('');
+        setDisplayName('');
       } else {
         await signInWithEmailAndPassword(auth, email, password);
       }
@@ -82,9 +93,24 @@ export default function App() {
     }
   };
 
+  const handleResendVerification = async () => {
+    if (user) {
+      try {
+        setAuthLoading(true);
+        await sendEmailVerification(user);
+        alert("Verification email sent!");
+      } catch (error: any) {
+        setAuthError(error.message || "Failed to resend verification");
+      } finally {
+        setAuthLoading(false);
+      }
+    }
+  };
+
   const handleLogout = async () => {
     try {
       await signOut(auth);
+      setVerificationSent(false);
     } catch (error) {
       console.error("Logout failed", error);
     }
@@ -111,95 +137,153 @@ export default function App() {
             <Zap size={32} />
           </div>
           
-          <div className="space-y-2 text-center">
-            <h1 className="text-2xl font-bold tracking-tight">
-              {isSignUp ? 'Create an account' : 'Welcome back'}
-            </h1>
-            <p className="text-zinc-400 text-sm">
-              {isSignUp ? 'Join mova ai to start your journey' : 'Sign in to continue your intelligent journey'}
-            </p>
-          </div>
-
-          <form onSubmit={handleEmailAuth} className="w-full space-y-4">
-            {isSignUp && (
-              <div className="relative">
-                <UserIcon className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" size={18} />
-                <input
-                  type="text"
-                  placeholder="Full Name"
-                  value={displayName}
-                  onChange={(e) => setDisplayName(e.target.value)}
-                  className="w-full bg-zinc-900 border border-white/10 rounded-xl py-3 pl-10 pr-4 text-sm focus:outline-none focus:border-white/20 transition-colors"
-                  required={isSignUp}
-                />
+          {verificationSent ? (
+            <div className="space-y-6 text-center w-full">
+              <div className="space-y-2">
+                <h1 className="text-2xl font-bold tracking-tight text-emerald-400">Verify your email</h1>
+                <p className="text-zinc-400 text-sm">
+                  We've sent a verification link to your email. Please check your inbox and verify your account.
+                </p>
               </div>
-            )}
-            
-            <div className="relative">
-              <Mail className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" size={18} />
-              <input
-                type="email"
-                placeholder="Email address"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="w-full bg-zinc-900 border border-white/10 rounded-xl py-3 pl-10 pr-4 text-sm focus:outline-none focus:border-white/20 transition-colors"
-                required
-              />
+              <div className="p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-xl">
+                <p className="text-emerald-400 text-xs font-medium">Check your email & verify, then log in</p>
+              </div>
+              <button 
+                onClick={() => setVerificationSent(false)}
+                className="w-full bg-zinc-100 text-zinc-900 py-3 rounded-xl font-semibold hover:bg-white transition-all shadow-lg"
+              >
+                Login
+              </button>
             </div>
+          ) : (
+            <>
+              <div className="space-y-2 text-center">
+                <h1 className="text-2xl font-bold tracking-tight">
+                  {isSignUp ? 'Create an account' : 'Welcome back'}
+                </h1>
+                <p className="text-zinc-400 text-sm">
+                  {isSignUp ? 'Join mova ai to start your journey' : 'Sign in to continue your intelligent journey'}
+                </p>
+              </div>
 
-            <div className="relative">
-              <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" size={18} />
-              <input
-                type="password"
-                placeholder="Password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full bg-zinc-900 border border-white/10 rounded-xl py-3 pl-10 pr-4 text-sm focus:outline-none focus:border-white/20 transition-colors"
-                required
-              />
-            </div>
+              <form onSubmit={handleEmailAuth} className="w-full space-y-4">
+                {isSignUp && (
+                  <div className="relative">
+                    <UserIcon className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" size={18} />
+                    <input
+                      type="text"
+                      placeholder="Full Name"
+                      value={displayName}
+                      onChange={(e) => setDisplayName(e.target.value)}
+                      className="w-full bg-zinc-900 border border-white/10 rounded-xl py-3 pl-10 pr-4 text-sm focus:outline-none focus:border-white/20 transition-colors"
+                      required={isSignUp}
+                    />
+                  </div>
+                )}
+                
+                <div className="relative">
+                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" size={18} />
+                  <input
+                    type="email"
+                    placeholder="Email address"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    className="w-full bg-zinc-900 border border-white/10 rounded-xl py-3 pl-10 pr-4 text-sm focus:outline-none focus:border-white/20 transition-colors"
+                    required
+                  />
+                </div>
 
-            {authError && (
-              <p className="text-red-400 text-xs text-center px-2">{authError}</p>
-            )}
+                <div className="relative">
+                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" size={18} />
+                  <input
+                    type="password"
+                    placeholder="Password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="w-full bg-zinc-900 border border-white/10 rounded-xl py-3 pl-10 pr-4 text-sm focus:outline-none focus:border-white/20 transition-colors"
+                    required
+                  />
+                </div>
 
-            <button 
-              type="submit"
-              disabled={authLoading}
-              className="w-full bg-zinc-100 text-zinc-900 py-3 rounded-xl font-semibold hover:bg-white transition-all shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {authLoading ? 'Processing...' : (isSignUp ? 'Sign Up' : 'Sign In')}
-            </button>
-          </form>
+                {authError && (
+                  <p className="text-red-400 text-xs text-center px-2">{authError}</p>
+                )}
 
-          <div className="w-full flex items-center gap-4">
-            <div className="h-px flex-1 bg-white/5" />
-            <span className="text-[10px] text-zinc-500 uppercase font-bold">OR</span>
-            <div className="h-px flex-1 bg-white/5" />
-          </div>
+                <button 
+                  type="submit"
+                  disabled={authLoading}
+                  className="w-full bg-zinc-100 text-zinc-900 py-3 rounded-xl font-semibold hover:bg-white transition-all shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {authLoading ? 'Processing...' : (isSignUp ? 'Sign Up' : 'Sign In')}
+                </button>
+              </form>
 
-          <button 
-            onClick={handleGoogleLogin}
-            className="w-full flex items-center justify-center gap-3 bg-zinc-900 border border-white/10 text-zinc-100 py-3 rounded-xl font-medium hover:bg-zinc-800 transition-all"
-          >
-            <LogIn size={20} />
-            Continue with Google
-          </button>
+              <div className="w-full flex items-center gap-4">
+                <div className="h-px flex-1 bg-white/5" />
+                <span className="text-[10px] text-zinc-500 uppercase font-bold">OR</span>
+                <div className="h-px flex-1 bg-white/5" />
+              </div>
 
-          <p className="text-sm text-zinc-400">
-            {isSignUp ? 'Already have an account?' : "Don't have an account?"}{' '}
-            <button 
-              onClick={() => {
-                setIsSignUp(!isSignUp);
-                setAuthError(null);
-              }}
-              className="text-zinc-100 font-semibold hover:underline"
-            >
-              {isSignUp ? 'Sign In' : 'Sign Up'}
-            </button>
-          </p>
+              <button 
+                onClick={handleGoogleLogin}
+                className="w-full flex items-center justify-center gap-3 bg-zinc-900 border border-white/10 text-zinc-100 py-3 rounded-xl font-medium hover:bg-zinc-800 transition-all"
+              >
+                <LogIn size={20} />
+                Continue with Google
+              </button>
+
+              <p className="text-sm text-zinc-400">
+                {isSignUp ? 'Already have an account?' : "Don't have an account?"}{' '}
+                <button 
+                  onClick={() => {
+                    setIsSignUp(!isSignUp);
+                    setAuthError(null);
+                  }}
+                  className="text-zinc-100 font-semibold hover:underline"
+                >
+                  {isSignUp ? 'Sign In' : 'Sign Up'}
+                </button>
+              </p>
+            </>
+          )}
 
           <p className="text-[10px] text-zinc-500 uppercase tracking-widest font-bold">Secure Authentication via Firebase</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (user && !user.emailVerified) {
+    return (
+      <div className="h-screen w-screen flex items-center justify-center bg-brand-bg text-brand-ink p-4">
+        <div className="max-w-md w-full glass-panel p-8 rounded-3xl flex flex-col items-center gap-6 text-center">
+          <div className="w-16 h-16 bg-amber-500/10 rounded-2xl flex items-center justify-center text-amber-500 shadow-xl border border-amber-500/20">
+            <Mail size={32} />
+          </div>
+          <div className="space-y-2">
+            <h1 className="text-2xl font-bold tracking-tight text-amber-500">Verify your email</h1>
+            <p className="text-zinc-400 text-sm">
+              Your email address <strong>{user.email}</strong> is not verified yet. Please check your inbox for the verification link.
+            </p>
+          </div>
+          
+          <div className="w-full space-y-3">
+            <button 
+              onClick={handleResendVerification}
+              disabled={authLoading}
+              className="w-full bg-zinc-100 text-zinc-900 py-3 rounded-xl font-semibold hover:bg-white transition-all shadow-lg disabled:opacity-50"
+            >
+              {authLoading ? 'Sending...' : 'Resend Verification Email'}
+            </button>
+            <button 
+              onClick={handleLogout}
+              className="w-full bg-zinc-900 border border-white/10 text-zinc-100 py-3 rounded-xl font-medium hover:bg-zinc-800 transition-all"
+            >
+              Back to Login
+            </button>
+          </div>
+          
+          <p className="text-[10px] text-zinc-500 uppercase tracking-widest font-bold">Email Verification Required</p>
         </div>
       </div>
     );
