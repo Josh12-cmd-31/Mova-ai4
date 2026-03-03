@@ -1,6 +1,8 @@
 import { GoogleGenAI, Type, Modality, GenerateContentResponse } from "@google/genai";
+import OpenAI from "openai";
 
 const apiKey = process.env.GEMINI_API_KEY;
+const openAiKey = process.env.OPENAI_API_KEY;
 
 export const getGeminiModel = () => {
   if (!apiKey) {
@@ -34,6 +36,10 @@ function handleGeminiError(error: any): never {
     throw new GeminiError("Rate limit exceeded. The system is currently busy. Please wait about 30-60 seconds before trying again.", "RATE_LIMIT");
   }
 
+  if (status === 503 || message.includes("high demand") || message.includes("UNAVAILABLE")) {
+    throw new GeminiError("The AI model is currently experiencing high demand. We are automatically retrying, but if this persists, please try again in a few moments.", "SERVICE_UNAVAILABLE");
+  }
+
   if (message.includes("network") || message.includes("fetch")) {
     throw new GeminiError("Network error. Please check your internet connection.", "NETWORK_ERROR");
   }
@@ -41,19 +47,25 @@ function handleGeminiError(error: any): never {
   throw new GeminiError(message, "UNKNOWN_ERROR", error);
 }
 
+const getOpenAIClient = () => {
+  if (!openAiKey) return null;
+  return new OpenAI({ apiKey: openAiKey, dangerouslyAllowBrowser: true });
+};
+
 const delay = (ms: number) => new Promise(res => setTimeout(res, ms));
 
 export async function chatWithGemini(message: string, history: any[] = [], selectedModel?: string) {
-  const models = selectedModel 
+  const geminiModels = selectedModel 
     ? [selectedModel, "gemini-3.1-pro-preview", "gemini-3-flash-preview", "gemini-flash-lite-latest"]
     : ["gemini-3.1-pro-preview", "gemini-3-flash-preview", "gemini-flash-lite-latest"];
   
   // Remove duplicates while preserving order
-  const uniqueModels = Array.from(new Set(models));
+  const uniqueGeminiModels = Array.from(new Set(geminiModels));
   let lastError: any = null;
 
-  for (let i = 0; i < uniqueModels.length; i++) {
-    const model = uniqueModels[i];
+  // Try Gemini models first
+  for (let i = 0; i < uniqueGeminiModels.length; i++) {
+    const model = uniqueGeminiModels[i];
     try {
       const ai = getGeminiModel();
       const chat = ai.chats.create({
@@ -71,16 +83,51 @@ export async function chatWithGemini(message: string, history: any[] = [], selec
     } catch (error: any) {
       lastError = error;
       const errMsg = error.message || "";
-      const isRateLimit = errMsg.includes("429") || errMsg.includes("quota") || errMsg.includes("Rate limit");
+      const status = error.status || error.code;
+      const isRetryable = errMsg.includes("429") || errMsg.includes("quota") || errMsg.includes("Rate limit") || 
+                        status === 503 || errMsg.includes("high demand") || errMsg.includes("UNAVAILABLE");
       
-      if (!isRateLimit || i === models.length - 1) {
+      if (!isRetryable) {
+        // If it's a fatal error (like auth or safety), don't bother with other Gemini models
+        // but we might still want to try OpenAI if it's not an auth error
+        if (errMsg.includes("API_KEY_INVALID")) break;
         handleGeminiError(error);
       }
       
-      console.warn(`Model ${model} failed with rate limit, trying fallback in 1s...`);
+      console.warn(`Gemini Model ${model} failed, trying next...`);
       await delay(1000);
     }
   }
+
+  // If all Gemini models fail, try OpenAI as fallback
+  const openai = getOpenAIClient();
+  if (openai) {
+    console.info("All Gemini models failed or busy. Attempting OpenAI fallback...");
+    try {
+      const completion = await openai.chat.completions.create({
+        model: "gpt-4o",
+        messages: [
+          { role: "system", content: "You are mova ai, an advanced multimodal AI system. You are precise, analytical, and strategic. You break down complex tasks into structured steps. You are professional and confident." },
+          ...history.map(h => ({ 
+            role: (h.role === 'user' ? 'user' : 'assistant') as "user" | "assistant", 
+            content: h.content 
+          })),
+          { role: "user", content: message }
+        ],
+      });
+
+      const responseText = completion.choices[0]?.message?.content;
+      if (!responseText) {
+        throw new Error("OpenAI returned an empty response.");
+      }
+      return responseText;
+    } catch (oaError: any) {
+      console.error("OpenAI fallback also failed:", oaError);
+      // If OpenAI also fails, throw the original Gemini error or a combined one
+      handleGeminiError(lastError || oaError);
+    }
+  }
+
   handleGeminiError(lastError);
 }
 
@@ -94,10 +141,15 @@ async function generateImageWithRetry(ai: any, modelName: string, prompt: string
     });
     return response;
   } catch (error: any) {
-    const isRateLimit = error.status === 429 || (error.message && (error.message.includes("429") || error.message.includes("quota") || error.message.includes("Rate limit")));
-    if (isRateLimit && retries > 0) {
+    const status = error.status || error.code;
+    const isRetryable = status === 429 || status === 503 || 
+                       (error.message && (error.message.includes("429") || error.message.includes("quota") || 
+                        error.message.includes("Rate limit") || error.message.includes("high demand") || 
+                        error.message.includes("UNAVAILABLE")));
+    
+    if (isRetryable && retries > 0) {
       const delayTime = (6 - retries) * 2000;
-      console.warn(`Rate limited, retrying in ${delayTime}ms... (${retries} retries left)`);
+      console.warn(`Transient error, retrying in ${delayTime}ms... (${retries} retries left)`);
       await delay(delayTime);
       return generateImageWithRetry(ai, modelName, prompt, retries - 1);
     }
@@ -193,11 +245,14 @@ export async function editImage(imageB64: string, prompt: string, model: string 
     } catch (error: any) {
       attempts++;
       const errMsg = error.message || "";
-      const isRateLimit = errMsg.includes("429") || errMsg.includes("quota") || errMsg.includes("Rate limit");
+      const status = error.status || error.code;
+      const isRetryable = errMsg.includes("429") || errMsg.includes("quota") || errMsg.includes("Rate limit") || 
+                        status === 503 || errMsg.includes("high demand") || errMsg.includes("UNAVAILABLE");
       
-      if (isRateLimit && attempts < maxAttempts) {
-        console.warn("Image edit rate limited, retrying in 2s...");
-        await delay(2000);
+      if (isRetryable && attempts < maxAttempts) {
+        const delayTime = attempts * 2000;
+        console.warn(`Image edit transient error, retrying in ${delayTime}ms...`);
+        await delay(delayTime);
         continue;
       }
       handleGeminiError(error);
@@ -237,14 +292,16 @@ export async function analyzeImage(imageB64: string, prompt: string, mimeType: s
     } catch (error: any) {
       lastError = error;
       const errMsg = error.message || "";
-      const isRateLimit = errMsg.includes("429") || errMsg.includes("quota") || errMsg.includes("Rate limit");
+      const status = error.status || error.code;
+      const isRetryable = errMsg.includes("429") || errMsg.includes("quota") || errMsg.includes("Rate limit") || 
+                        status === 503 || errMsg.includes("high demand") || errMsg.includes("UNAVAILABLE");
       
-      if (!isRateLimit || i === models.length - 1) {
+      if (!isRetryable || i === models.length - 1) {
         handleGeminiError(error);
       }
       
-      console.warn(`Image analysis ${model} rate limited, trying fallback in 1s...`);
-      await delay(1000);
+      console.warn(`Image analysis ${model} transient error, trying fallback in 1.5s...`);
+      await delay(1500);
     }
   }
   handleGeminiError(lastError);
