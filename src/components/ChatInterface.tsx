@@ -20,25 +20,15 @@ import {
   Cpu
 } from 'lucide-react';
 import { chatWithGemini, analyzeImage, editImage, generateImage, GeminiError } from '../services/gemini';
+import { Message } from '../types';
 
-interface Message {
-  id: string;
-  role: 'user' | 'assistant';
-  content: string;
-  image?: string;
-  isEditing?: boolean;
-  isError?: boolean;
-  errorCode?: string;
+interface ChatInterfaceProps {
+  initialMessages: Message[];
+  onUpdateMessages: (messages: Message[]) => void;
 }
 
-export default function ChatInterface() {
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      id: '1',
-      role: 'assistant',
-      content: "How can I help you today?"
-    }
-  ]);
+export default function ChatInterface({ initialMessages, onUpdateMessages }: ChatInterfaceProps): React.JSX.Element {
+  const [messages, setMessages] = useState<Message[]>(initialMessages);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
@@ -56,6 +46,7 @@ export default function ChatInterface() {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
+    onUpdateMessages(messages);
   }, [messages]);
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {

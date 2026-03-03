@@ -14,7 +14,8 @@ import {
   LogOut,
   Mail,
   Lock,
-  User as UserIcon
+  User as UserIcon,
+  Plus
 } from 'lucide-react';
 import ChatInterface from './components/ChatInterface';
 import { 
@@ -29,12 +30,17 @@ import {
   updateProfile,
   sendEmailVerification
 } from './services/firebase';
+import { ChatSession, Message } from './types';
 
 export default function App() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   
+  // Chat Sessions State
+  const [sessions, setSessions] = useState<ChatSession[]>([]);
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+
   // Auth Form State
   const [isSignUp, setIsSignUp] = useState(false);
   const [email, setEmail] = useState('');
@@ -44,6 +50,36 @@ export default function App() {
   const [authLoading, setAuthLoading] = useState(false);
   const [verificationSent, setVerificationSent] = useState(false);
 
+  // Load sessions from localStorage
+  useEffect(() => {
+    if (user) {
+      const savedSessions = localStorage.getItem(`mova_sessions_${user.uid}`);
+      if (savedSessions) {
+        try {
+          const parsed = JSON.parse(savedSessions);
+          setSessions(parsed);
+          if (parsed.length > 0) {
+            setActiveSessionId(parsed[0].id);
+          } else {
+            createNewChat();
+          }
+        } catch (e) {
+          console.error("Failed to parse sessions", e);
+          createNewChat();
+        }
+      } else {
+        createNewChat();
+      }
+    }
+  }, [user]);
+
+  // Save sessions to localStorage
+  useEffect(() => {
+    if (user && sessions.length > 0) {
+      localStorage.setItem(`mova_sessions_${user.uid}`, JSON.stringify(sessions));
+    }
+  }, [sessions, user]);
+
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
@@ -51,6 +87,48 @@ export default function App() {
     });
     return () => unsubscribe();
   }, []);
+
+  const createNewChat = () => {
+    const newSession: ChatSession = {
+      id: Date.now().toString(),
+      title: 'New Chat',
+      messages: [
+        {
+          id: '1',
+          role: 'assistant',
+          content: "How can I help you today?"
+        }
+      ],
+      createdAt: Date.now(),
+      updatedAt: Date.now()
+    };
+    setSessions(prev => [newSession, ...prev]);
+    setActiveSessionId(newSession.id);
+  };
+
+  const updateSessionMessages = (sessionId: string, messages: Message[]) => {
+    setSessions(prev => prev.map(session => {
+      if (session.id === sessionId) {
+        // Update title based on first user message if it's still "New Chat"
+        let newTitle = session.title;
+        if (session.title === 'New Chat') {
+          const firstUserMsg = messages.find(m => m.role === 'user');
+          if (firstUserMsg) {
+            newTitle = firstUserMsg.content.slice(0, 30) + (firstUserMsg.content.length > 30 ? '...' : '');
+          }
+        }
+        return {
+          ...session,
+          messages,
+          title: newTitle,
+          updatedAt: Date.now()
+        };
+      }
+      return session;
+    }));
+  };
+
+  const activeSession = sessions.find(s => s.id === activeSessionId);
 
   const handleGoogleLogin = async () => {
     setAuthError(null);
@@ -330,12 +408,37 @@ export default function App() {
         </div>
 
         <nav className="flex-1 p-2 space-y-1 overflow-y-auto">
-          <NavItem icon={<MessageSquare size={16} />} label="New Chat" active />
+          <button 
+            onClick={createNewChat}
+            className="w-full flex items-center gap-3 p-2.5 rounded-lg transition-all text-sm text-zinc-100 bg-zinc-800 hover:bg-zinc-700 font-medium mb-4"
+          >
+            <Plus size={16} />
+            <span>New Chat</span>
+          </button>
+          
           <div className="py-2 px-3">
             <span className="text-[10px] font-bold text-zinc-600 uppercase tracking-widest">History</span>
           </div>
-          <NavItem icon={<MessageSquare size={16} />} label="Previous analysis" />
-          <NavItem icon={<ImageIcon size={16} />} label="Image generation" />
+          
+          <div className="space-y-1">
+            {sessions.map(session => (
+              <button 
+                key={session.id}
+                onClick={() => {
+                  setActiveSessionId(session.id);
+                  setIsSidebarOpen(false);
+                }}
+                className={`w-full flex items-center gap-3 p-2.5 rounded-lg transition-all text-sm ${
+                  activeSessionId === session.id 
+                    ? 'bg-zinc-800/50 text-zinc-100 font-medium border border-white/5' 
+                    : 'text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300'
+                }`}
+              >
+                <MessageSquare size={16} />
+                <span className="truncate text-left flex-1">{session.title}</span>
+              </button>
+            ))}
+          </div>
         </nav>
 
         <div className="p-2 border-t border-white/5">
@@ -389,7 +492,18 @@ export default function App() {
 
         {/* Chat Area */}
         <div className="flex-1 overflow-hidden relative">
-          <ChatInterface />
+          {activeSession ? (
+            <div key={activeSession.id} className="h-full">
+              <ChatInterface 
+                initialMessages={activeSession.messages}
+                onUpdateMessages={(msgs) => updateSessionMessages(activeSession.id, msgs)}
+              />
+            </div>
+          ) : (
+            <div className="h-full flex items-center justify-center text-zinc-500">
+              Select or start a new chat
+            </div>
+          )}
         </div>
       </main>
     </div>
