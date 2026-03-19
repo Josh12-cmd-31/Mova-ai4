@@ -5,10 +5,11 @@ const apiKey = process.env.GEMINI_API_KEY;
 const openAiKey = process.env.OPENAI_API_KEY;
 
 export const getGeminiModel = () => {
-  if (!apiKey) {
-    throw new Error("GEMINI_API_KEY is not set");
+  const key = process.env.API_KEY || process.env.GEMINI_API_KEY;
+  if (!key) {
+    throw new Error("Gemini API key is not set. Please configure it in Settings.");
   }
-  return new GoogleGenAI({ apiKey });
+  return new GoogleGenAI({ apiKey: key });
 };
 
 export class GeminiError extends Error {
@@ -306,7 +307,7 @@ export async function editImage(imageB64: string, prompt: string, model: string 
   }
 }
 
-export async function analyzeImage(imageB64: string, prompt: string, mimeType: string = "image/png") {
+export async function analyzeFile(fileB64: string, prompt: string, mimeType: string = "image/png") {
   const models = ["gemini-3-flash-preview", "gemini-2.5-flash-image"];
   let lastError: any = null;
 
@@ -320,12 +321,12 @@ export async function analyzeImage(imageB64: string, prompt: string, mimeType: s
           parts: [
             {
               inlineData: {
-                data: imageB64,
+                data: fileB64,
                 mimeType: mimeType,
               },
             },
             {
-              text: prompt || "Analyze this image in detail.",
+              text: prompt || "Analyze this file in detail.",
             },
           ],
         },
@@ -341,7 +342,7 @@ export async function analyzeImage(imageB64: string, prompt: string, mimeType: s
         handleGeminiError(error);
       }
       
-      console.warn(`Image analysis ${model} transient error, trying fallback in 1.5s...`);
+      console.warn(`File analysis ${model} transient error, trying fallback in 1.5s...`);
       await delay(1500);
     }
   }

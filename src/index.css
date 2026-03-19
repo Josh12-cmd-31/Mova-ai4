@@ -44,3 +44,11 @@
 .markdown-body pre {
   @apply bg-zinc-900 text-zinc-100 p-4 rounded-lg overflow-x-auto my-4 font-mono text-xs;
 }
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}

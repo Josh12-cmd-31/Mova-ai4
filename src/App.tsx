@@ -15,7 +15,10 @@ import {
   Mail,
   Lock,
   User as UserIcon,
-  Plus
+  Plus,
+  Download,
+  Copy,
+  Check
 } from 'lucide-react';
 import ChatInterface from './components/ChatInterface';
 import { 
@@ -28,14 +31,30 @@ import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
   updateProfile,
-  sendEmailVerification
+  sendEmailVerification,
+  db,
+  handleFirestoreError,
+  OperationType
 } from './services/firebase';
+import { 
+  collection, 
+  query, 
+  where, 
+  onSnapshot, 
+  setDoc, 
+  doc, 
+  orderBy,
+  getDocFromServer
+} from 'firebase/firestore';
 import { ChatSession, Message } from './types';
 
 export default function App() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [newDisplayName, setNewDisplayName] = useState('');
+  const [isUpdatingName, setIsUpdatingName] = useState(false);
   
   // Chat Sessions State
   const [sessions, setSessions] = useState<ChatSession[]>([]);
@@ -50,35 +69,45 @@ export default function App() {
   const [authLoading, setAuthLoading] = useState(false);
   const [verificationSent, setVerificationSent] = useState(false);
 
-  // Load sessions from localStorage
+  // Validate connection to Firestore
   useEffect(() => {
-    if (user) {
-      const savedSessions = localStorage.getItem(`mova_sessions_${user.uid}`);
-      if (savedSessions) {
-        try {
-          const parsed = JSON.parse(savedSessions);
-          setSessions(parsed);
-          if (parsed.length > 0) {
-            setActiveSessionId(parsed[0].id);
-          } else {
-            createNewChat();
-          }
-        } catch (e) {
-          console.error("Failed to parse sessions", e);
-          createNewChat();
+    async function testConnection() {
+      try {
+        await getDocFromServer(doc(db, 'test', 'connection'));
+      } catch (error) {
+        if(error instanceof Error && error.message.includes('the client is offline')) {
+          console.error("Please check your Firebase configuration.");
         }
-      } else {
-        createNewChat();
       }
     }
-  }, [user]);
+    testConnection();
+  }, []);
 
-  // Save sessions to localStorage
+  // Load sessions from Firestore
   useEffect(() => {
-    if (user && sessions.length > 0) {
-      localStorage.setItem(`mova_sessions_${user.uid}`, JSON.stringify(sessions));
+    if (user && user.emailVerified) {
+      const q = query(
+        collection(db, 'sessions'),
+        where('userId', '==', user.uid),
+        orderBy('updatedAt', 'desc')
+      );
+
+      const unsubscribe = onSnapshot(q, (snapshot) => {
+        const loadedSessions = snapshot.docs.map(doc => doc.data() as ChatSession);
+        setSessions(loadedSessions);
+        
+        if (loadedSessions.length > 0 && !activeSessionId) {
+          setActiveSessionId(loadedSessions[0].id);
+        } else if (loadedSessions.length === 0) {
+          createNewChat();
+        }
+      }, (error) => {
+        handleFirestoreError(error, OperationType.LIST, 'sessions');
+      });
+
+      return () => unsubscribe();
     }
-  }, [sessions, user]);
+  }, [user, user?.emailVerified]);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
@@ -88,44 +117,58 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  const createNewChat = () => {
+  const createNewChat = async () => {
+    if (!user) return;
+    const newId = Date.now().toString();
+    const welcomeName = user.displayName ? `, ${user.displayName.split(' ')[0]}` : '';
     const newSession: ChatSession = {
-      id: Date.now().toString(),
+      id: newId,
+      userId: user.uid,
       title: 'New Chat',
       messages: [
         {
           id: '1',
           role: 'assistant',
-          content: "How can I help you today?"
+          content: `How can I help you today${welcomeName}?`
         }
       ],
       createdAt: Date.now(),
       updatedAt: Date.now()
     };
-    setSessions(prev => [newSession, ...prev]);
-    setActiveSessionId(newSession.id);
+    
+    try {
+      await setDoc(doc(db, 'sessions', newId), newSession);
+      setActiveSessionId(newId);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, `sessions/${newId}`);
+    }
   };
 
-  const updateSessionMessages = (sessionId: string, messages: Message[]) => {
-    setSessions(prev => prev.map(session => {
-      if (session.id === sessionId) {
-        // Update title based on first user message if it's still "New Chat"
-        let newTitle = session.title;
-        if (session.title === 'New Chat') {
-          const firstUserMsg = messages.find(m => m.role === 'user');
-          if (firstUserMsg) {
-            newTitle = firstUserMsg.content.slice(0, 30) + (firstUserMsg.content.length > 30 ? '...' : '');
-          }
-        }
-        return {
-          ...session,
-          messages,
-          title: newTitle,
-          updatedAt: Date.now()
-        };
+  const updateSessionMessages = async (sessionId: string, messages: Message[]) => {
+    if (!user) return;
+    const session = sessions.find(s => s.id === sessionId);
+    if (!session) return;
+
+    let newTitle = session.title;
+    if (session.title === 'New Chat') {
+      const firstUserMsg = messages.find(m => m.role === 'user');
+      if (firstUserMsg) {
+        newTitle = firstUserMsg.content.slice(0, 30) + (firstUserMsg.content.length > 30 ? '...' : '');
       }
-      return session;
-    }));
+    }
+
+    const updatedSession = {
+      ...session,
+      messages,
+      title: newTitle,
+      updatedAt: Date.now()
+    };
+
+    try {
+      await setDoc(doc(db, 'sessions', sessionId), updatedSession);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, `sessions/${sessionId}`);
+    }
   };
 
   const activeSession = sessions.find(s => s.id === activeSessionId);
@@ -189,9 +232,66 @@ export default function App() {
     try {
       await signOut(auth);
       setVerificationSent(false);
+      setIsSettingsOpen(false);
     } catch (error) {
       console.error("Logout failed", error);
     }
+  };
+
+  const handleUpdateName = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user || !newDisplayName.trim() || isUpdatingName) return;
+
+    setIsUpdatingName(true);
+    try {
+      await updateProfile(user, { displayName: newDisplayName });
+      // Force a re-render by updating the user state
+      setUser({ ...user, displayName: newDisplayName });
+      setIsSettingsOpen(false);
+    } catch (error: any) {
+      console.error("Failed to update name", error);
+      setAuthError(error.message || "Failed to update name");
+    } finally {
+      setIsUpdatingName(false);
+    }
+  };
+
+  const exportChatHistory = (format: 'json' | 'text') => {
+    if (!activeSession) return;
+    
+    let content = '';
+    let fileName = `chat-history-${activeSession.id}`;
+    
+    if (format === 'json') {
+      content = JSON.stringify(activeSession.messages, null, 2);
+      fileName += '.json';
+    } else {
+      content = activeSession.messages.map(m => 
+        `[${m.role.toUpperCase()}]\n${m.content}\n${m.image ? `[Image attached]\n` : ''}\n`
+      ).join('-------------------\n');
+      fileName += '.txt';
+    }
+
+    const blob = new Blob([content], { type: format === 'json' ? 'application/json' : 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fileName;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const copyChatHistory = () => {
+    if (!activeSession) return;
+    const content = activeSession.messages.map(m => 
+      `[${m.role.toUpperCase()}]\n${m.content}\n`
+    ).join('\n');
+    
+    navigator.clipboard.writeText(content).then(() => {
+      alert("Chat history copied to clipboard!");
+    });
   };
 
   if (loading) {
@@ -460,12 +560,124 @@ export default function App() {
             <LogOut size={16} />
             <span>Sign Out</span>
           </button>
-          <button className="w-full flex items-center gap-3 p-2.5 rounded-lg text-zinc-400 hover:bg-zinc-800 hover:text-white transition-colors text-sm">
+          <button 
+            onClick={() => {
+              setNewDisplayName(user.displayName || '');
+              setIsSettingsOpen(true);
+            }}
+            className="w-full flex items-center gap-3 p-2.5 rounded-lg text-zinc-400 hover:bg-zinc-800 hover:text-white transition-colors text-sm"
+          >
             <Settings size={16} />
             <span>Settings</span>
           </button>
         </div>
       </motion.aside>
+
+      {/* Settings Modal */}
+      <AnimatePresence>
+        {isSettingsOpen && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsSettingsOpen(false)}
+              className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative w-full max-w-md bg-zinc-900 border border-white/10 rounded-3xl p-8 shadow-2xl"
+            >
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-xl font-bold text-zinc-100">Settings</h2>
+                <button 
+                  onClick={() => setIsSettingsOpen(false)}
+                  className="p-2 hover:bg-zinc-800 rounded-full transition-colors text-zinc-500"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              <form onSubmit={handleUpdateName} className="space-y-6">
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-zinc-500 uppercase tracking-widest">Display Name</label>
+                  <div className="relative">
+                    <UserIcon className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" size={18} />
+                    <input
+                      type="text"
+                      placeholder="Enter your name"
+                      value={newDisplayName}
+                      onChange={(e) => setNewDisplayName(e.target.value)}
+                      className="w-full bg-zinc-950 border border-white/10 rounded-xl py-3 pl-10 pr-4 text-sm text-zinc-100 focus:outline-none focus:border-white/20 transition-colors"
+                      required
+                    />
+                  </div>
+                  <p className="text-[10px] text-zinc-500">This name will be used to personalize your experience.</p>
+                </div>
+
+                <div className="pt-4 flex gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setIsSettingsOpen(false)}
+                    className="flex-1 px-4 py-3 rounded-xl text-sm font-semibold text-zinc-400 hover:bg-zinc-800 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isUpdatingName || !newDisplayName.trim()}
+                    className="flex-1 bg-zinc-100 text-zinc-900 px-4 py-3 rounded-xl text-sm font-semibold hover:bg-white transition-all shadow-lg disabled:opacity-50"
+                  >
+                    {isUpdatingName ? 'Saving...' : 'Save Changes'}
+                  </button>
+                </div>
+              </form>
+
+              <div className="mt-8 pt-6 border-t border-white/5 space-y-4">
+                <label className="text-xs font-bold text-zinc-500 uppercase tracking-widest">Chat Export</label>
+                <div className="grid grid-cols-1 gap-2">
+                  <button
+                    onClick={() => exportChatHistory('json')}
+                    disabled={!activeSession}
+                    className="flex items-center justify-between w-full p-3 bg-zinc-950 border border-white/5 rounded-xl text-sm text-zinc-300 hover:text-white hover:bg-zinc-800 transition-all group disabled:opacity-50"
+                  >
+                    <div className="flex items-center gap-3">
+                      <Download size={16} className="text-zinc-500 group-hover:text-zinc-300" />
+                      <span>Export as JSON</span>
+                    </div>
+                    <span className="text-[10px] font-bold text-zinc-600">.json</span>
+                  </button>
+                  
+                  <button
+                    onClick={() => exportChatHistory('text')}
+                    disabled={!activeSession}
+                    className="flex items-center justify-between w-full p-3 bg-zinc-950 border border-white/5 rounded-xl text-sm text-zinc-300 hover:text-white hover:bg-zinc-800 transition-all group disabled:opacity-50"
+                  >
+                    <div className="flex items-center gap-3">
+                      <Download size={16} className="text-zinc-500 group-hover:text-zinc-300" />
+                      <span>Export as Text</span>
+                    </div>
+                    <span className="text-[10px] font-bold text-zinc-600">.txt</span>
+                  </button>
+
+                  <button
+                    onClick={copyChatHistory}
+                    disabled={!activeSession}
+                    className="flex items-center justify-between w-full p-3 bg-zinc-950 border border-white/5 rounded-xl text-sm text-zinc-300 hover:text-white hover:bg-zinc-800 transition-all group disabled:opacity-50"
+                  >
+                    <div className="flex items-center gap-3">
+                      <Copy size={16} className="text-zinc-500 group-hover:text-zinc-300" />
+                      <span>Copy to Clipboard</span>
+                    </div>
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       {/* Main Content */}
       <main className="flex-1 flex flex-col min-w-0 relative bg-brand-bg">
