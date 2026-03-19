@@ -17,7 +17,11 @@ import {
   Sparkles,
   Layers,
   Info,
-  Cpu
+  Cpu,
+  Volume2,
+  VolumeX,
+  Mic,
+  MicOff
 } from 'lucide-react';
 import { chatWithGemini, analyzeImage, editImage, generateImage, GeminiError } from '../services/gemini';
 import { Message } from '../types';
@@ -38,6 +42,12 @@ export default function ChatInterface({ initialMessages, onUpdateMessages }: Cha
   const [isOrchestrationMode, setIsOrchestrationMode] = useState(false);
   const [selectedImageModel, setSelectedImageModel] = useState('gemini-2.5-flash-image');
   const [selectedChatModel, setSelectedChatModel] = useState('gemini-3.1-pro-preview');
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [isGalleryOpen, setIsGalleryOpen] = useState(false);
+  const [fullscreenImage, setFullscreenImage] = useState<string | null>(null);
+  const [speakingMsgId, setSpeakingMsgId] = useState<string | null>(null);
+  const [isRecording, setIsRecording] = useState(false);
+  const recognitionRef = useRef<any>(null);
   
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -74,30 +84,140 @@ export default function ChatInterface({ initialMessages, onUpdateMessages }: Cha
     };
 
     setMessages(prev => [...prev, userMessage]);
+    const currentInput = input;
+    const currentImage = selectedImage;
+    const currentMime = imageMimeType;
+    
     setInput('');
+    if (!isEditingMode) {
+      setSelectedImage(null);
+    }
+    
+    await executeRequest(currentInput, currentImage, currentMime);
+  };
+
+  const handleRetry = async (errorMsgId: string) => {
+    const errorIndex = messages.findIndex(m => m.id === errorMsgId);
+    if (errorIndex <= 0) return;
+    
+    const userMsg = messages[errorIndex - 1];
+    if (userMsg.role !== 'user') return;
+
+    // Remove the error message
+    setMessages(prev => prev.filter(m => m.id !== errorMsgId));
+    
+    let b64 = null;
+    let mime = '';
+    if (userMsg.image && userMsg.image.startsWith('data:')) {
+      const parts = userMsg.image.split(',');
+      mime = parts[0].split(':')[1].split(';')[0];
+      b64 = parts[1];
+    }
+
+    await executeRequest(userMsg.content, b64, mime);
+  };
+
+  const handleSpeak = (text: string, msgId: string) => {
+    if (speakingMsgId === msgId) {
+      window.speechSynthesis.cancel();
+      setSpeakingMsgId(null);
+      return;
+    }
+
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.onend = () => setSpeakingMsgId(null);
+    utterance.onerror = () => setSpeakingMsgId(null);
+    
+    setSpeakingMsgId(msgId);
+    window.speechSynthesis.speak(utterance);
+  };
+
+  useEffect(() => {
+    return () => {
+      window.speechSynthesis.cancel();
+      if (recognitionRef.current) {
+        recognitionRef.current.stop();
+      }
+    };
+  }, []);
+
+  const toggleSpeechToText = () => {
+    if (isRecording) {
+      recognitionRef.current?.stop();
+      setIsRecording(false);
+      return;
+    }
+
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      alert("Speech recognition is not supported in your browser.");
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = 'en-US';
+
+    recognition.onstart = () => {
+      setIsRecording(true);
+    };
+
+    recognition.onresult = (event: any) => {
+      let interimTranscript = '';
+      let finalTranscript = '';
+
+      for (let i = event.resultIndex; i < event.results.length; ++i) {
+        if (event.results[i].isFinal) {
+          finalTranscript += event.results[i][0].transcript;
+        } else {
+          interimTranscript += event.results[i][0].transcript;
+        }
+      }
+
+      if (finalTranscript) {
+        setInput(prev => prev + (prev ? ' ' : '') + finalTranscript);
+      }
+    };
+
+    recognition.onerror = (event: any) => {
+      console.error('Speech recognition error', event.error);
+      setIsRecording(false);
+    };
+
+    recognition.onend = () => {
+      setIsRecording(false);
+    };
+
+    recognitionRef.current = recognition;
+    recognition.start();
+  };
+
+  const executeRequest = async (text: string, image: string | null, mime: string) => {
     setIsLoading(true);
 
     try {
       let responseText = "";
       let editedImage: string | null = null;
 
-      if (selectedImage) {
+      if (image) {
         if (isEditingMode) {
-          const result = await editImage(selectedImage, input || "Enhance this image", selectedImageModel);
+          const result = await editImage(image, text || "Enhance this image", selectedImageModel);
           responseText = result.textResponse || "I've processed your image edit request.";
           editedImage = result.editedImageB64;
         } else {
-          responseText = await analyzeImage(selectedImage, input);
+          responseText = await analyzeImage(image, text);
         }
       } else if (isGenerationMode) {
-        const result = await generateImage(input, selectedImageModel);
+        const result = await generateImage(text, selectedImageModel);
         responseText = result.textResponse || "I've generated an image for you.";
         editedImage = result.generatedImageB64;
       } else if (isOrchestrationMode) {
         const response = await fetch('/api/orchestrate', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ prompt: input })
+          body: JSON.stringify({ prompt: text })
         });
         if (!response.ok) {
           const errorData = await response.json();
@@ -106,7 +226,7 @@ export default function ChatInterface({ initialMessages, onUpdateMessages }: Cha
         const data = await response.json();
         responseText = data.finalResult;
       } else {
-        responseText = await chatWithGemini(input, [], selectedChatModel);
+        responseText = await chatWithGemini(text, messages, selectedChatModel);
       }
 
       const assistantMessage: Message = {
@@ -121,10 +241,6 @@ export default function ChatInterface({ initialMessages, onUpdateMessages }: Cha
       if (editedImage) {
         setSelectedImage(editedImage);
         setImageMimeType('image/png');
-      } else {
-        if (!isEditingMode) {
-          setSelectedImage(null);
-        }
       }
     } catch (error) {
       console.error(error);
@@ -174,6 +290,15 @@ export default function ChatInterface({ initialMessages, onUpdateMessages }: Cha
         </div>
         
         <div className="flex items-center gap-4">
+          {/* Gallery Button */}
+          <button 
+            onClick={() => setIsGalleryOpen(true)}
+            className="flex items-center gap-2 px-3 py-1.5 bg-zinc-900 rounded-full border border-white/5 text-zinc-400 hover:text-zinc-100 transition-colors"
+          >
+            <ImageIcon size={14} />
+            <span className="text-[10px] font-bold uppercase tracking-wider">Gallery</span>
+          </button>
+
           {/* Model Status Indicator */}
           <div className="flex items-center gap-3 px-3 py-1.5 bg-zinc-900 rounded-full border border-white/5 group relative cursor-help">
             <div className="flex items-center gap-1.5">
@@ -188,7 +313,7 @@ export default function ChatInterface({ initialMessages, onUpdateMessages }: Cha
                 <div>
                   <div className="flex items-center gap-2 mb-1">
                     <Cpu size={12} className="text-zinc-500" />
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">Chat Engine</span>
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">Active Chat Model</span>
                   </div>
                   <div className="text-xs font-semibold text-zinc-100">
                     {isOrchestrationMode ? "4-Agent Orchestrator" : selectedChatModel.split('-').map(s => s.charAt(0).toUpperCase() + s.slice(1)).join(' ')}
@@ -198,7 +323,7 @@ export default function ChatInterface({ initialMessages, onUpdateMessages }: Cha
                 <div>
                   <div className="flex items-center gap-2 mb-1">
                     <ImageIcon size={12} className="text-zinc-500" />
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">Visual Engine</span>
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">Active Visual Model</span>
                   </div>
                   <div className="text-xs font-semibold text-zinc-100">
                     {selectedImageModel.split('-').map(s => s.charAt(0).toUpperCase() + s.slice(1)).join(' ')}
@@ -207,16 +332,6 @@ export default function ChatInterface({ initialMessages, onUpdateMessages }: Cha
               </div>
             </div>
           </div>
-
-          <select 
-            value={selectedChatModel}
-            onChange={(e) => setSelectedChatModel(e.target.value)}
-            className="bg-zinc-900 text-zinc-400 text-[11px] font-bold uppercase px-3 py-1.5 rounded-full border border-white/5 focus:ring-0 cursor-pointer hover:bg-zinc-800 transition-colors"
-          >
-            <option value="gemini-3.1-pro-preview">Pro 3.1</option>
-            <option value="gemini-3-flash-preview">Flash 3</option>
-            <option value="gemini-flash-lite-latest">Flash Lite</option>
-          </select>
         </div>
       </div>
 
@@ -246,33 +361,62 @@ export default function ChatInterface({ initialMessages, onUpdateMessages }: Cha
                         ? 'bg-zinc-800 p-3 rounded-2xl text-zinc-100' 
                         : 'text-zinc-100'
                     }`}>
-                      {msg.isError && (
-                        <div className="flex items-center gap-2 mb-2 text-red-600 font-bold text-[10px] uppercase tracking-wider">
-                          <AlertCircle size={12} />
-                          System Error: {msg.errorCode}
-                        </div>
-                      )}
-                      {msg.image && (
-                        <div className="mb-3 relative group">
-                          <img 
-                            src={msg.image} 
-                            alt="Uploaded content" 
-                            className="rounded-xl max-h-80 object-contain bg-zinc-900 border border-white/5 shadow-sm"
-                          />
-                          <a 
-                            href={msg.image} 
-                            download="mova-ai-image.png"
-                            className="absolute top-2 right-2 p-2 bg-black/50 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                      {msg.isError ? (
+                        <div className="flex flex-col gap-3">
+                          <div className="flex items-center gap-2 text-red-600 font-bold text-[10px] uppercase tracking-wider">
+                            <AlertCircle size={12} />
+                            System Error: {msg.errorCode}
+                          </div>
+                          <div className="prose prose-sm max-w-none prose-zinc leading-relaxed text-red-400/80">
+                            {msg.content.split('\n').map((line, i) => (
+                              <p key={i} className="mb-3 last:mb-0">{line}</p>
+                            ))}
+                          </div>
+                          <button
+                            onClick={() => handleRetry(msg.id)}
+                            disabled={isLoading}
+                            className="flex items-center gap-2 self-start px-3 py-1.5 bg-red-950/30 border border-red-900/50 rounded-lg text-[10px] font-bold uppercase tracking-wider text-red-400 hover:bg-red-900/40 transition-all disabled:opacity-50"
                           >
-                            <Download size={14} />
-                          </a>
+                            <RefreshCcw size={12} className={isLoading ? "animate-spin" : ""} />
+                            Retry Request
+                          </button>
                         </div>
+                      ) : (
+                        <>
+                          {msg.image && (
+                            <div className="mb-3 relative group cursor-pointer" onClick={() => setFullscreenImage(msg.image || null)}>
+                              <img 
+                                src={msg.image} 
+                                alt="Uploaded content" 
+                                className="rounded-xl max-h-80 object-contain bg-zinc-900 border border-white/5 shadow-sm transition-transform group-hover:scale-[1.01]"
+                              />
+                              <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center rounded-xl">
+                                <Maximize2 size={24} className="text-white" />
+                              </div>
+                            </div>
+                          )}
+                          <div className="prose prose-sm max-w-none prose-zinc leading-relaxed">
+                            {msg.content.split('\n').map((line, i) => (
+                              <p key={i} className="mb-3 last:mb-0">{line}</p>
+                            ))}
+                          </div>
+                          {msg.role === 'assistant' && !msg.isError && (
+                            <div className="mt-3 flex items-center gap-2">
+                              <button
+                                onClick={() => handleSpeak(msg.content, msg.id)}
+                                className={`p-2 rounded-lg transition-all ${
+                                  speakingMsgId === msg.id 
+                                    ? 'bg-zinc-100 text-zinc-900' 
+                                    : 'bg-zinc-900 text-zinc-500 hover:text-zinc-300'
+                                }`}
+                                title={speakingMsgId === msg.id ? "Stop Speaking" : "Read Aloud"}
+                              >
+                                {speakingMsgId === msg.id ? <VolumeX size={14} /> : <Volume2 size={14} />}
+                              </button>
+                            </div>
+                          )}
+                        </>
                       )}
-                      <div className="prose prose-sm max-w-none prose-zinc leading-relaxed">
-                        {msg.content.split('\n').map((line, i) => (
-                          <p key={i} className="mb-3 last:mb-0">{line}</p>
-                        ))}
-                      </div>
                     </div>
                   </div>
                 </div>
@@ -299,6 +443,237 @@ export default function ChatInterface({ initialMessages, onUpdateMessages }: Cha
       {/* Input Area */}
       <div className="max-w-3xl w-full mx-auto px-4 pb-6 pt-2">
         <div className="relative">
+          {/* Unified Model & Tools Menu */}
+      <AnimatePresence>
+        {isGalleryOpen && (
+          <motion.div
+            initial={{ opacity: 0, x: '100%' }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: '100%' }}
+            className="fixed inset-y-0 right-0 w-full sm:w-96 bg-zinc-950 border-l border-white/5 z-50 flex flex-col shadow-2xl"
+          >
+            <div className="p-4 border-b border-white/5 flex items-center justify-between bg-zinc-950/80 backdrop-blur-md">
+              <div className="flex items-center gap-3">
+                <ImageIcon size={18} className="text-zinc-400" />
+                <h2 className="text-sm font-bold uppercase tracking-widest text-zinc-100">Image Gallery</h2>
+              </div>
+              <button 
+                onClick={() => setIsGalleryOpen(false)}
+                className="p-2 hover:bg-white/5 rounded-full transition-colors text-zinc-400 hover:text-white"
+              >
+                <X size={20} />
+              </button>
+            </div>
+            
+            <div className="flex-1 overflow-y-auto p-4 scrollbar-hide">
+              {messages.filter(m => m.image).length === 0 ? (
+                <div className="h-full flex flex-col items-center justify-center text-zinc-600 space-y-4">
+                  <ImageIcon size={48} strokeWidth={1} />
+                  <p className="text-xs font-medium">No images in this session yet</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 gap-3">
+                  {messages.filter(m => m.image).map((msg, idx) => (
+                    <motion.div
+                      key={msg.id}
+                      initial={{ opacity: 0, scale: 0.9 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      transition={{ delay: idx * 0.05 }}
+                      className="relative aspect-square rounded-xl overflow-hidden bg-zinc-900 border border-white/5 group cursor-pointer"
+                      onClick={() => setFullscreenImage(msg.image || null)}
+                    >
+                      <img 
+                        src={msg.image} 
+                        alt="Gallery item" 
+                        className="w-full h-full object-cover transition-transform group-hover:scale-110"
+                      />
+                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                        <Maximize2 size={18} className="text-white" />
+                      </div>
+                    </motion.div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Fullscreen Lightbox */}
+      <AnimatePresence>
+        {fullscreenImage && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/95 z-[60] flex items-center justify-center p-4 md:p-12"
+          >
+            <div className="absolute top-4 right-4 flex items-center gap-2">
+              <a 
+                href={fullscreenImage} 
+                download="mova-ai-export.png"
+                className="p-3 bg-white/10 hover:bg-white/20 rounded-full text-white transition-all backdrop-blur-md"
+                title="Download Image"
+              >
+                <Download size={20} />
+              </a>
+              <button 
+                onClick={() => setFullscreenImage(null)}
+                className="p-3 bg-white/10 hover:bg-white/20 rounded-full text-white transition-all backdrop-blur-md"
+              >
+                <X size={20} />
+              </button>
+            </div>
+            
+            <motion.img
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              src={fullscreenImage}
+              alt="Fullscreen view"
+              className="max-w-full max-h-full object-contain rounded-lg shadow-2xl"
+            />
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Unified Model & Tools Menu */}
+          <AnimatePresence>
+            {isMenuOpen && (
+              <motion.div
+                initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                className="absolute bottom-full left-0 mb-4 w-80 bg-zinc-900 border border-white/10 rounded-2xl shadow-2xl overflow-hidden z-50"
+              >
+                <div className="p-4 space-y-6">
+                  {/* File Upload Section */}
+                  <div>
+                    <button
+                      onClick={() => {
+                        fileInputRef.current?.click();
+                        setIsMenuOpen(false);
+                      }}
+                      className="w-full flex items-center gap-3 p-3 bg-zinc-800/50 hover:bg-zinc-800 rounded-xl transition-colors group"
+                    >
+                      <div className="w-10 h-10 rounded-lg bg-zinc-700 flex items-center justify-center text-zinc-300 group-hover:text-white transition-colors">
+                        <Plus size={20} />
+                      </div>
+                      <div className="text-left">
+                        <div className="text-xs font-bold text-zinc-100">Upload Media</div>
+                        <div className="text-[10px] text-zinc-500">Images for analysis or editing</div>
+                      </div>
+                    </button>
+                  </div>
+
+                  {/* Chat Models */}
+                  <div>
+                    <div className="flex items-center gap-2 mb-3 px-1">
+                      <Cpu size={14} className="text-zinc-500" />
+                      <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">Intelligence Engine</span>
+                    </div>
+                    <div className="grid grid-cols-1 gap-2">
+                      {[
+                        { id: 'gemini-3.1-pro-preview', name: 'Pro 3.1', desc: 'Best for complex reasoning', tag: 'Smartest' },
+                        { id: 'gemini-3-flash-preview', name: 'Flash 3', desc: 'Balanced speed & intelligence', tag: 'Popular' },
+                        { id: 'gemini-flash-lite-latest', name: 'Flash Lite', desc: 'Lightweight & ultra-fast', tag: 'Fastest' }
+                      ].map(model => (
+                        <button
+                          key={model.id}
+                          onClick={() => {
+                            setSelectedChatModel(model.id);
+                            setIsMenuOpen(false);
+                          }}
+                          className={`flex items-center justify-between p-3 rounded-xl border transition-all ${
+                            selectedChatModel === model.id 
+                              ? 'bg-zinc-100 border-zinc-100 text-zinc-900' 
+                              : 'bg-zinc-800/30 border-white/5 text-zinc-400 hover:bg-zinc-800'
+                          }`}
+                        >
+                          <div className="text-left">
+                            <div className="text-xs font-bold">{model.name}</div>
+                            <div className={`text-[10px] ${selectedChatModel === model.id ? 'text-zinc-600' : 'text-zinc-500'}`}>{model.desc}</div>
+                          </div>
+                          <span className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded ${
+                            selectedChatModel === model.id ? 'bg-zinc-900/10 text-zinc-900' : 'bg-zinc-900 text-zinc-500'
+                          }`}>
+                            {model.tag}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Visual Models */}
+                  <div>
+                    <div className="flex items-center gap-2 mb-3 px-1">
+                      <ImageIcon size={14} className="text-zinc-500" />
+                      <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">Visual Engine</span>
+                    </div>
+                    <div className="grid grid-cols-1 gap-2">
+                      {[
+                        { id: 'gemini-3-pro-image-preview', name: 'Pro Image', desc: 'Highest detail & quality', tag: 'Best' },
+                        { id: 'gemini-3.1-flash-image-preview', name: 'Flash HQ', desc: 'High quality & flexible', tag: 'HQ' },
+                        { id: 'gemini-2.5-flash-image', name: 'Flash Image', desc: 'Fast generation', tag: 'Fast' },
+                        { id: 'imagen-4.0-generate-001', name: 'Imagen 4', desc: 'Photorealistic results', tag: 'New' }
+                      ].map(model => (
+                        <button
+                          key={model.id}
+                          onClick={() => {
+                            setSelectedImageModel(model.id);
+                            setIsMenuOpen(false);
+                          }}
+                          className={`flex items-center justify-between p-3 rounded-xl border transition-all ${
+                            selectedImageModel === model.id 
+                              ? 'bg-zinc-100 border-zinc-100 text-zinc-900' 
+                              : 'bg-zinc-800/30 border-white/5 text-zinc-400 hover:bg-zinc-800'
+                          }`}
+                        >
+                          <div className="text-left">
+                            <div className="text-xs font-bold">{model.name}</div>
+                            <div className={`text-[10px] ${selectedImageModel === model.id ? 'text-zinc-600' : 'text-zinc-500'}`}>{model.desc}</div>
+                          </div>
+                          <span className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded ${
+                            selectedImageModel === model.id ? 'bg-zinc-900/10 text-zinc-900' : 'bg-zinc-900 text-zinc-500'
+                          }`}>
+                            {model.tag}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Modes */}
+                  <div className="pt-2 border-t border-white/5 flex gap-2">
+                    <button
+                      onClick={() => {
+                        setIsGenerationMode(!isGenerationMode);
+                        setIsMenuOpen(false);
+                      }}
+                      className={`flex-1 flex items-center justify-center gap-2 p-2 rounded-lg text-[10px] font-bold uppercase transition-all ${
+                        isGenerationMode ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-zinc-800 text-zinc-500'
+                      }`}
+                    >
+                      <Sparkles size={12} />
+                      Generate
+                    </button>
+                    <button
+                      onClick={() => {
+                        setIsOrchestrationMode(!isOrchestrationMode);
+                        setIsMenuOpen(false);
+                      }}
+                      className={`flex-1 flex items-center justify-center gap-2 p-2 rounded-lg text-[10px] font-bold uppercase transition-all ${
+                        isOrchestrationMode ? 'bg-indigo-500/20 text-indigo-400 border border-indigo-500/30' : 'bg-zinc-800 text-zinc-500'
+                      }`}
+                    >
+                      <Layers size={12} />
+                      Orchestrate
+                    </button>
+                  </div>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
           {/* Image Preview */}
           <AnimatePresence>
             {selectedImage && (
@@ -335,17 +710,6 @@ export default function ChatInterface({ initialMessages, onUpdateMessages }: Cha
                       {isEditingMode ? <Wand2 size={10} /> : <ImageIcon size={10} />}
                       {isEditingMode ? 'Editing' : 'Analysis'}
                     </button>
-                    {isEditingMode && (
-                      <select 
-                        value={selectedImageModel}
-                        onChange={(e) => setSelectedImageModel(e.target.value)}
-                        className="bg-zinc-800 text-zinc-400 text-[10px] font-bold uppercase px-2 py-1 rounded-md border-none focus:ring-0"
-                      >
-                        <option value="gemini-2.5-flash-image">Flash</option>
-                        <option value="gemini-3.1-flash-image-preview">Flash HQ</option>
-                        <option value="gemini-3-pro-image-preview">Pro</option>
-                      </select>
-                    )}
                   </div>
                 </div>
               </motion.div>
@@ -363,51 +727,13 @@ export default function ChatInterface({ initialMessages, onUpdateMessages }: Cha
             <div className="flex items-center">
               <button
                 type="button"
-                onClick={() => fileInputRef.current?.click()}
-                className={`p-2 transition-colors ${
-                  (isGenerationMode || isOrchestrationMode) && !selectedImage ? 'text-zinc-500 hover:text-white' : 'text-zinc-500 hover:text-zinc-300'
+                onClick={() => setIsMenuOpen(!isMenuOpen)}
+                className={`p-2 transition-all ${
+                  isMenuOpen ? 'text-white rotate-45' : 'text-zinc-500 hover:text-zinc-300'
                 }`}
               >
                 <Plus size={20} />
               </button>
-              {!selectedImage && (
-                <div className="flex items-center gap-1">
-                  <button
-                    type="button"
-                    onClick={() => setIsGenerationMode(!isGenerationMode)}
-                    className={`p-2 transition-colors ${
-                      isGenerationMode ? 'text-brand-accent' : 'text-zinc-500 hover:text-zinc-300'
-                    }`}
-                    title="Toggle Image Generation"
-                  >
-                    <Sparkles size={18} />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setIsOrchestrationMode(!isOrchestrationMode)}
-                    className={`p-2 transition-colors ${
-                      isOrchestrationMode ? 'text-indigo-400' : 'text-zinc-500 hover:text-zinc-300'
-                    }`}
-                    title="Toggle Sequential Orchestration"
-                  >
-                    <Layers size={18} />
-                  </button>
-                  {(isGenerationMode || isOrchestrationMode) && (
-                    <select 
-                      value={selectedImageModel}
-                      onChange={(e) => setSelectedImageModel(e.target.value)}
-                      className={`text-[10px] font-bold uppercase px-2 py-1 rounded-md border-none focus:ring-0 transition-colors ${
-                        isGenerationMode || isOrchestrationMode ? 'bg-zinc-800 text-zinc-400' : 'bg-zinc-800 text-zinc-400'
-                      }`}
-                    >
-                      <option value="gemini-2.5-flash-image">Flash</option>
-                      <option value="gemini-3.1-flash-image-preview">Flash HQ</option>
-                      <option value="gemini-3-pro-image-preview">Pro</option>
-                      <option value="imagen-4.0-generate-001">Imagen 4</option>
-                    </select>
-                  )}
-                </div>
-              )}
             </div>
             <input 
               type="file" 
@@ -427,9 +753,11 @@ export default function ChatInterface({ initialMessages, onUpdateMessages }: Cha
                 }
               }}
               placeholder={
-                selectedImage 
-                  ? (isEditingMode ? "Describe edits..." : "Ask about image...") 
-                  : (isGenerationMode ? "Describe image to generate..." : isOrchestrationMode ? "Describe complex task for orchestration..." : "Message mova ai...")
+                isRecording
+                  ? "Listening..."
+                  : selectedImage 
+                    ? (isEditingMode ? "Describe edits..." : "Ask about image...") 
+                    : (isGenerationMode ? "Describe image to generate..." : isOrchestrationMode ? "Describe complex task for orchestration..." : "Message mova ai...")
               }
               className={`flex-1 max-h-48 min-h-[40px] py-2 bg-transparent border-none focus:ring-0 text-sm resize-none ${
                 (isGenerationMode || isOrchestrationMode) && !selectedImage ? 'placeholder-zinc-500 text-zinc-100' : 'text-zinc-100'
@@ -437,19 +765,33 @@ export default function ChatInterface({ initialMessages, onUpdateMessages }: Cha
               rows={1}
             />
 
-            <button
-              type="submit"
-              disabled={(!input.trim() && !selectedImage) || isLoading}
-              className={`p-2 rounded-full transition-all ${
-                (!input.trim() && !selectedImage) || isLoading
-                  ? 'text-zinc-700'
-                  : (isGenerationMode || isOrchestrationMode) && !selectedImage
-                    ? 'text-zinc-900 bg-zinc-100 hover:bg-white shadow-sm'
-                    : 'text-zinc-900 bg-zinc-100 hover:bg-white shadow-sm'
-              }`}
-            >
-              {isLoading ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}
-            </button>
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={toggleSpeechToText}
+                className={`p-2 rounded-full transition-all ${
+                  isRecording 
+                    ? 'bg-red-500/20 text-red-500 animate-pulse' 
+                    : 'text-zinc-500 hover:text-zinc-300'
+                }`}
+                title={isRecording ? "Stop Recording" : "Voice Input"}
+              >
+                {isRecording ? <MicOff size={18} /> : <Mic size={18} />}
+              </button>
+              <button
+                type="submit"
+                disabled={(!input.trim() && !selectedImage) || isLoading}
+                className={`p-2 rounded-full transition-all ${
+                  (!input.trim() && !selectedImage) || isLoading
+                    ? 'text-zinc-700'
+                    : (isGenerationMode || isOrchestrationMode) && !selectedImage
+                      ? 'text-zinc-900 bg-zinc-100 hover:bg-white shadow-sm'
+                      : 'text-zinc-900 bg-zinc-100 hover:bg-white shadow-sm'
+                }`}
+              >
+                {isLoading ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}
+              </button>
+            </div>
           </form>
           <div className="mt-2 flex justify-center">
             <span className="text-[10px] text-zinc-400 font-medium">

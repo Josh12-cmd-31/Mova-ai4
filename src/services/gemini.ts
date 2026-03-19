@@ -47,8 +47,24 @@ function handleGeminiError(error: any): never {
     throw new GeminiError("The request was blocked by safety filters. Please try a different prompt.", "SAFETY_ERROR");
   }
 
+  if (status === 400 || String(status) === "400" || message.includes("INVALID_ARGUMENT")) {
+    throw new GeminiError("The request was invalid. Please check your input and try again.", "INVALID_REQUEST");
+  }
+
+  if (status === 403 || String(status) === "403" || message.includes("PERMISSION_DENIED")) {
+    throw new GeminiError("Permission denied. Please check your API key permissions.", "PERMISSION_DENIED");
+  }
+
+  if (status === 404 || String(status) === "404" || message.includes("NOT_FOUND")) {
+    throw new GeminiError("The requested resource was not found.", "NOT_FOUND");
+  }
+
   if (status === 429 || String(status) === "429" || message.includes("quota") || message.includes("Rate limit")) {
     throw new GeminiError("Rate limit exceeded. The system is currently busy. Please wait about 30-60 seconds before trying again.", "RATE_LIMIT");
+  }
+
+  if (status === 500 || String(status) === "500" || message.includes("INTERNAL")) {
+    throw new GeminiError("An internal server error occurred at the AI provider. Please try again later.", "INTERNAL_ERROR");
   }
 
   if (status === 503 || String(status) === "503" || message.includes("high demand") || message.includes("UNAVAILABLE") || message.includes("Service Unavailable")) {
