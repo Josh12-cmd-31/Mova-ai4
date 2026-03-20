@@ -25,14 +25,86 @@ import {
   Volume2,
   VolumeX,
   Mic,
-  MicOff
+  MicOff,
+  MessageSquare,
+  ChevronDown,
+  Settings2,
+  Hash,
+  Square,
+  RectangleHorizontal,
+  RectangleVertical,
+  Palette,
+  Search,
+  Dices,
+  Share2,
+  ZoomIn,
+  ZoomOut
 } from 'lucide-react';
-import { chatWithGemini, analyzeFile, editImage, generateImage, GeminiError } from '../services/gemini';
-import { Message } from '../types';
+import { chatWithGemini, analyzeFile, editImage, generateImage, GeminiError, ImageOptions } from '../services/gemini';
+import { Message, SessionFile } from '../types';
+import { db, handleFirestoreError, OperationType } from '../services/firebase';
+import { getDoc, doc } from 'firebase/firestore';
 
-function FileComparison({ before, after }: { before: string; after: string }) {
+function FileImage({ fileId, alt, className, onLoad }: { fileId: string; alt: string; className?: string; onLoad?: (dataUrl: string) => void }) {
+  const [dataUrl, setDataUrl] = useState<string | null>(null);
+  const [error, setError] = useState(false);
+
+  useEffect(() => {
+    const loadFile = async () => {
+      try {
+        const docRef = doc(db, 'session_files', fileId);
+        const docSnap = await getDoc(docRef);
+        if (docSnap.exists()) {
+          const fileData = docSnap.data() as SessionFile;
+          const url = `data:${fileData.mimeType};base64,${fileData.data}`;
+          setDataUrl(url);
+          onLoad?.(url);
+        } else {
+          setError(true);
+        }
+      } catch (err) {
+        console.error("Error loading file:", err);
+        setError(true);
+      }
+    };
+    loadFile();
+  }, [fileId]);
+
+  if (error) return <div className="flex items-center justify-center bg-zinc-800 rounded-lg aspect-square text-white/30 text-xs">Failed to load</div>;
+  if (!dataUrl) return <div className="flex items-center justify-center bg-zinc-800 rounded-lg aspect-square"><Loader2 className="w-4 h-4 animate-spin text-white/30" /></div>;
+
+  return <img src={dataUrl} alt={alt} className={className} referrerPolicy="no-referrer" />;
+}
+
+function FileComparison({ before, after, beforeId, afterId, onMaximize }: { before?: string; after?: string; beforeId?: string; afterId?: string; onMaximize?: (url: string) => void }) {
   const [sliderPos, setSliderPos] = useState(50);
   const containerRef = useRef<HTMLDivElement>(null);
+  const [beforeUrl, setBeforeUrl] = useState<string | null>(before || null);
+  const [afterUrl, setAfterUrl] = useState<string | null>(after || null);
+
+  useEffect(() => {
+    const loadFiles = async () => {
+      if (!beforeUrl && beforeId) {
+        try {
+          const docSnap = await getDoc(doc(db, 'session_files', beforeId));
+          if (docSnap.exists()) {
+            const fileData = docSnap.data() as SessionFile;
+            setBeforeUrl(`data:${fileData.mimeType};base64,${fileData.data}`);
+          }
+        } catch (e) { console.error(e); }
+      }
+      if (!afterUrl && afterId) {
+        try {
+          const docSnap = await getDoc(doc(db, 'session_files', afterId));
+          if (docSnap.exists()) {
+            const fileData = docSnap.data() as SessionFile;
+            setAfterUrl(`data:${fileData.mimeType};base64,${fileData.data}`);
+          }
+        } catch (e) { console.error(e); }
+      }
+    };
+    loadFiles();
+  }, [beforeId, afterId, before, after]);
 
   const handleMove = (e: any) => {
     if (!containerRef.current) return;
@@ -42,6 +114,8 @@ function FileComparison({ before, after }: { before: string; after: string }) {
     setSliderPos(Math.min(Math.max(position, 0), 100));
   };
 
+  if (!beforeUrl || !afterUrl) return <div className="flex items-center justify-center bg-zinc-900 rounded-xl aspect-square max-h-80 border border-white/5"><Loader2 className="w-6 h-6 animate-spin text-white/30" /></div>;
+
   return (
     <div 
       ref={containerRef}
@@ -49,9 +123,9 @@ function FileComparison({ before, after }: { before: string; after: string }) {
       onMouseMove={handleMove}
       onTouchMove={handleMove}
     >
-      <img src={after} alt="After" className="absolute inset-0 w-full h-full object-contain pointer-events-none" />
+      <img src={afterUrl} alt="After" className="absolute inset-0 w-full h-full object-contain pointer-events-none" />
       <img 
-        src={before} 
+        src={beforeUrl} 
         alt="Before" 
         className="absolute inset-0 w-full h-full object-contain pointer-events-none" 
         style={{ clipPath: `inset(0 ${100 - sliderPos}% 0 0)` }}
@@ -69,20 +143,58 @@ function FileComparison({ before, after }: { before: string; after: string }) {
       </div>
       <div className="absolute bottom-2 left-2 px-2 py-1 bg-black/40 backdrop-blur-md rounded text-[8px] font-bold uppercase tracking-widest text-white/70 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity">Original</div>
       <div className="absolute bottom-2 right-2 px-2 py-1 bg-black/40 backdrop-blur-md rounded text-[8px] font-bold uppercase tracking-widest text-white/70 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity">Edited</div>
+      {onMaximize && (
+        <button 
+          onClick={(e) => {
+            e.stopPropagation();
+            onMaximize(afterUrl!);
+          }}
+          className="absolute bottom-3 right-3 p-2 bg-black/50 hover:bg-black/70 rounded-lg text-white backdrop-blur-sm transition-all opacity-0 group-hover:opacity-100"
+          title="Maximize"
+        >
+          <Maximize2 size={16} />
+        </button>
+      )}
     </div>
   );
 }
 
-const EXAMPLE_PROMPTS = [
-  "A futuristic city with neon lights and flying cars",
-  "A cute robot painting a masterpiece on a canvas",
-  "A serene landscape with a crystal clear lake and snow-capped mountains",
-  "A cyberpunk cat wearing high-tech goggles",
-  "A magical forest with glowing plants and floating islands",
-  "A steampunk airship sailing through a sunset sky",
-  "A minimalist portrait of a woman with flowers in her hair",
-  "A hyper-realistic close-up of a dragon's eye",
-];
+const IMAGE_PROMPTS: Record<string, string[]> = {
+  'gemini-3-pro-image-preview': [
+    "A hyper-realistic close-up of a dragon's eye with intricate scales and fiery reflections",
+    "A futuristic city with neon lights and flying cars, cinematic lighting, 8k resolution",
+    "A serene landscape with a crystal clear lake and snow-capped mountains, National Geographic style",
+    "A detailed steampunk airship sailing through a sunset sky with golden hour lighting"
+  ],
+  'gemini-3.1-flash-image-preview': [
+    "A cute robot painting a masterpiece on a canvas in a sunlit studio",
+    "A cyberpunk cat wearing high-tech goggles on a rainy Tokyo street",
+    "A magical forest with glowing plants and floating islands, ethereal atmosphere",
+    "A minimalist portrait of a woman with flowers in her hair, soft pastel colors"
+  ],
+  'gemini-2.5-flash-image': [
+    "A simple sketch of a futuristic car concept",
+    "A vibrant abstract painting with bold brushstrokes and primary colors",
+    "A 3D render of a glass sphere floating over a desert landscape",
+    "A whimsical illustration of a house made of candy"
+  ],
+  'imagen-4.0-generate-001': [
+    "A photorealistic portrait of an elderly man with deep wrinkles and kind eyes",
+    "An oil painting of a stormy sea in the style of William Turner",
+    "A macro photograph of a dewdrop on a leaf, reflecting the entire forest",
+    "A surrealist landscape where the sky is made of clockwork gears"
+  ],
+  'default': [
+    "A futuristic city with neon lights and flying cars",
+    "A cute robot painting a masterpiece on a canvas",
+    "A serene landscape with a crystal clear lake and snow-capped mountains",
+    "A cyberpunk cat wearing high-tech goggles",
+    "A magical forest with glowing plants and floating islands",
+    "A steampunk airship sailing through a sunset sky",
+    "A minimalist portrait of a woman with flowers in her hair",
+    "A hyper-realistic close-up of a dragon's eye"
+  ]
+};
 
 interface ChatInterfaceProps {
   initialMessages: Message[];
@@ -100,10 +212,61 @@ export default function ChatInterface({ initialMessages, onUpdateMessages }: Cha
   const [isGenerationMode, setIsGenerationMode] = useState(false);
   const [isOrchestrationMode, setIsOrchestrationMode] = useState(false);
   const [selectedImageModel, setSelectedImageModel] = useState('gemini-2.5-flash-image');
+
+  const handleShare = async (dataUrl: string) => {
+    try {
+      if (navigator.share) {
+        const blob = await (await fetch(dataUrl)).blob();
+        const file = new File([blob], 'mova-ai-image.png', { type: blob.type });
+        await navigator.share({
+          files: [file],
+          title: 'Shared from Mova AI',
+          text: 'Check out this image I generated with Mova AI!'
+        });
+      } else {
+        const blob = await (await fetch(dataUrl)).blob();
+        await navigator.clipboard.write([
+          new ClipboardItem({ [blob.type]: blob })
+        ]);
+        // No alert, just log or let the user see it's copied if we had a toast
+        console.log('Image copied to clipboard');
+      }
+    } catch (err) {
+      console.error('Error sharing:', err);
+    }
+  };
+
+  const handleDownload = async (fileId: string, fileName: string) => {
+    try {
+      const docRef = doc(db, 'session_files', fileId);
+      const docSnap = await getDoc(docRef);
+      if (docSnap.exists()) {
+        const fileData = docSnap.data() as SessionFile;
+        const url = `data:${fileData.mimeType};base64,${fileData.data}`;
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = fileName;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      }
+    } catch (err) {
+      console.error('Error downloading file:', err);
+    }
+  };
   const [selectedChatModel, setSelectedChatModel] = useState('gemini-3.1-pro-preview');
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isGalleryOpen, setIsGalleryOpen] = useState(false);
+  const [isModelSelectorOpen, setIsModelSelectorOpen] = useState(false);
+  const [isAdvancedSettingsOpen, setIsAdvancedSettingsOpen] = useState(false);
+  const [aspectRatio, setAspectRatio] = useState<ImageOptions['aspectRatio']>('1:1');
+  const [negativePrompt, setNegativePrompt] = useState('');
+  const [seed, setSeed] = useState<number | undefined>(undefined);
+  const [selectedStyle, setSelectedStyle] = useState('');
+  const [useSearch, setUseSearch] = useState(false);
   const [fullscreenImage, setFullscreenImage] = useState<string | null>(null);
+  const [fullscreenDataUrl, setFullscreenDataUrl] = useState<string | null>(null);
+  const [zoomScale, setZoomScale] = useState(1);
   const [speakingMsgId, setSpeakingMsgId] = useState<string | null>(null);
   const [isRecording, setIsRecording] = useState(false);
   const [isKeyRequired, setIsKeyRequired] = useState(false);
@@ -310,7 +473,14 @@ export default function ChatInterface({ initialMessages, onUpdateMessages }: Cha
         }
       } else if (isGenerationMode) {
         try {
-          const result = await generateImage(text, selectedImageModel);
+          const options: ImageOptions = {
+            aspectRatio,
+            negativePrompt: negativePrompt.trim() || undefined,
+            seed: seed || undefined,
+            style: selectedStyle || undefined,
+            useSearch: useSearch && (selectedImageModel === 'gemini-3-pro-image-preview' || selectedImageModel === 'gemini-3.1-flash-image-preview')
+          };
+          const result = await generateImage(text, selectedImageModel, options);
           if (!result || !result.generatedImageB64) {
             throw new GeminiError("I couldn't generate an image for that prompt. It might have been blocked by safety filters or the model is currently unavailable.", "IMAGE_GEN_FAILED");
           }
@@ -399,6 +569,17 @@ export default function ChatInterface({ initialMessages, onUpdateMessages }: Cha
     }
   };
 
+  const currentPrompts = IMAGE_PROMPTS[selectedImageModel] || IMAGE_PROMPTS.default;
+
+  const IMAGE_MODELS = [
+    { id: 'gemini-3-pro-image-preview', name: 'Pro Image', desc: 'Highest detail & quality', tag: 'Best', strength: 'High-quality image generation for professional use' },
+    { id: 'gemini-3.1-flash-image-preview', name: 'Flash HQ', desc: 'High quality & flexible', tag: 'HQ', strength: 'Great balance of speed and high-resolution detail' },
+    { id: 'gemini-2.5-flash-image', name: 'Flash Image', desc: 'Fast generation', tag: 'Fast', strength: 'Rapid generation for quick concepts and ideation' },
+    { id: 'imagen-4.0-generate-001', name: 'Imagen 4', desc: 'Photorealistic results', tag: 'New', strength: 'Advanced photorealism and artistic texture control' }
+  ];
+
+  const activeImageModel = IMAGE_MODELS.find(m => m.id === selectedImageModel) || IMAGE_MODELS[2];
+
   return (
     <div className="flex flex-col h-full bg-brand-bg text-brand-ink">
       <AnimatePresence>
@@ -458,6 +639,49 @@ export default function ChatInterface({ initialMessages, onUpdateMessages }: Cha
         </div>
         
         <div className="flex items-center gap-4">
+          {/* Mode Switcher */}
+          <div className="hidden md:flex items-center bg-zinc-900/50 rounded-full p-1 border border-white/5">
+            <button
+              onClick={() => {
+                setIsGenerationMode(false);
+                setIsOrchestrationMode(false);
+              }}
+              className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider transition-all ${
+                !isGenerationMode && !isOrchestrationMode 
+                  ? 'bg-zinc-100 text-zinc-900 shadow-md' 
+                  : 'text-zinc-500 hover:text-zinc-300'
+              }`}
+            >
+              Chat
+            </button>
+            <button
+              onClick={() => {
+                setIsGenerationMode(true);
+                setIsOrchestrationMode(false);
+              }}
+              className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider transition-all ${
+                isGenerationMode 
+                  ? 'bg-emerald-500 text-white shadow-md' 
+                  : 'text-zinc-500 hover:text-zinc-300'
+              }`}
+            >
+              Generate
+            </button>
+            <button
+              onClick={() => {
+                setIsOrchestrationMode(true);
+                setIsGenerationMode(false);
+              }}
+              className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider transition-all ${
+                isOrchestrationMode 
+                  ? 'bg-indigo-500 text-white shadow-md' 
+                  : 'text-zinc-500 hover:text-zinc-300'
+              }`}
+            >
+              Orchestrate
+            </button>
+          </div>
+
           {/* Gallery Button */}
           <button 
             onClick={() => setIsGalleryOpen(true)}
@@ -466,40 +690,6 @@ export default function ChatInterface({ initialMessages, onUpdateMessages }: Cha
             <ImageIcon size={14} />
             <span className="text-[10px] font-bold uppercase tracking-wider">Gallery</span>
           </button>
-
-          {/* Model Status Indicator */}
-          <div className="flex items-center gap-3 px-3 py-1.5 bg-zinc-900 rounded-full border border-white/5 group relative cursor-help">
-            <div className="flex items-center gap-1.5">
-              <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-              <span className="hidden sm:inline text-[10px] font-bold uppercase tracking-wider text-zinc-400">System Active</span>
-              <Info size={12} className="sm:hidden text-zinc-400" />
-            </div>
-            
-            {/* Tooltip */}
-            <div className="absolute top-full right-0 mt-2 w-64 p-3 bg-zinc-900 rounded-xl shadow-xl border border-white/5 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50">
-              <div className="space-y-3">
-                <div>
-                  <div className="flex items-center gap-2 mb-1">
-                    <Cpu size={12} className="text-zinc-500" />
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">Active Chat Model</span>
-                  </div>
-                  <div className="text-xs font-semibold text-zinc-100">
-                    {isOrchestrationMode ? "4-Agent Orchestrator" : selectedChatModel.split('-').map(s => s.charAt(0).toUpperCase() + s.slice(1)).join(' ')}
-                  </div>
-                </div>
-                <div className="h-px bg-white/5" />
-                <div>
-                  <div className="flex items-center gap-2 mb-1">
-                    <ImageIcon size={12} className="text-zinc-500" />
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">Active Visual Model</span>
-                  </div>
-                  <div className="text-xs font-semibold text-zinc-100">
-                    {selectedImageModel.split('-').map(s => s.charAt(0).toUpperCase() + s.slice(1)).join(' ')}
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
         </div>
       </div>
 
@@ -551,41 +741,109 @@ export default function ChatInterface({ initialMessages, onUpdateMessages }: Cha
                         </div>
                       ) : (
                         <>
-                          {msg.file && (
+                          {(msg.file || msg.fileId) && (
                             <div className="mb-3 relative group cursor-pointer">
-                              {msg.beforeFile ? (
-                                <FileComparison before={msg.beforeFile} after={msg.file} />
+                              {msg.beforeFile || msg.beforeFileId ? (
+                                <FileComparison 
+                                  before={msg.beforeFile} 
+                                  after={msg.file} 
+                                  beforeId={msg.beforeFileId} 
+                                  afterId={msg.fileId} 
+                                  onMaximize={(url) => setFullscreenImage(url)}
+                                />
                               ) : (
-                                <div onClick={() => msg.fileMimeType?.startsWith('image/') ? setFullscreenImage(msg.file || null) : null}>
-                                  {msg.fileMimeType?.startsWith('image/') ? (
-                                    <>
-                                      <img 
-                                        src={msg.file} 
-                                        alt="Uploaded content" 
+                                <div onClick={() => (msg.fileMimeType?.startsWith('image/') || msg.fileId) ? setFullscreenImage(msg.file || msg.fileId || null) : null}>
+                                  {msg.fileId ? (
+                                    <div className="relative group">
+                                      <FileImage 
+                                        fileId={msg.fileId} 
+                                        alt="Stored content" 
                                         className="rounded-xl max-h-80 object-contain bg-zinc-900 border border-white/5 shadow-sm transition-transform group-hover:scale-[1.01]"
                                       />
-                                      <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center rounded-xl">
+                                      <div className="absolute top-2 right-2 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                        <button
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleDownload(msg.fileId!, msg.fileName || 'image.png');
+                                          }}
+                                          className="p-2 bg-black/50 hover:bg-black/70 rounded-lg text-white backdrop-blur-sm transition-colors"
+                                          title="Download"
+                                        >
+                                          <Download size={14} />
+                                        </button>
+                                        <button
+                                          onClick={async (e) => {
+                                            e.stopPropagation();
+                                            const docRef = doc(db, 'session_files', msg.fileId!);
+                                            const docSnap = await getDoc(docRef);
+                                            if (docSnap.exists()) {
+                                              const fileData = docSnap.data() as SessionFile;
+                                              handleShare(`data:${fileData.mimeType};base64,${fileData.data}`);
+                                            }
+                                          }}
+                                          className="p-2 bg-black/50 hover:bg-black/70 rounded-lg text-white backdrop-blur-sm transition-colors"
+                                          title="Share"
+                                        >
+                                          <Share2 size={14} />
+                                        </button>
+                                      </div>
+                                      <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center rounded-xl pointer-events-none">
                                         <Maximize2 size={24} className="text-white" />
                                       </div>
-                                    </>
-                                  ) : (
-                                    <div className="flex items-center gap-3 p-4 bg-zinc-900 border border-white/5 rounded-xl hover:bg-zinc-800 transition-colors">
-                                      <div className="w-10 h-10 rounded-lg bg-zinc-800 flex items-center justify-center text-zinc-400">
-                                        {getFileIcon(msg.fileMimeType || '')}
-                                      </div>
-                                      <div className="flex-1 min-w-0">
-                                        <div className="text-xs font-bold text-zinc-100 truncate">{msg.fileName || 'Uploaded File'}</div>
-                                        <div className="text-[10px] text-zinc-500 uppercase tracking-wider">{msg.fileMimeType?.split('/')[1] || 'File'}</div>
-                                      </div>
-                                      <a 
-                                        href={msg.file} 
-                                        download={msg.fileName || 'file'}
-                                        onClick={(e) => e.stopPropagation()}
-                                        className="p-2 text-zinc-500 hover:text-white transition-colors"
-                                      >
-                                        <Download size={16} />
-                                      </a>
                                     </div>
+                                  ) : (
+                                    msg.fileMimeType?.startsWith('image/') ? (
+                                      <div className="relative group">
+                                        <img 
+                                          src={msg.file} 
+                                          alt="Uploaded content" 
+                                          className="rounded-xl max-h-80 object-contain bg-zinc-900 border border-white/5 shadow-sm transition-transform group-hover:scale-[1.01]"
+                                          referrerPolicy="no-referrer"
+                                        />
+                                        <div className="absolute top-2 right-2 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                          <a
+                                            href={msg.file}
+                                            download={msg.fileName || 'image.png'}
+                                            onClick={(e) => e.stopPropagation()}
+                                            className="p-2 bg-black/50 hover:bg-black/70 rounded-lg text-white backdrop-blur-sm transition-colors"
+                                            title="Download"
+                                          >
+                                            <Download size={14} />
+                                          </a>
+                                          <button
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              handleShare(msg.file!);
+                                            }}
+                                            className="p-2 bg-black/50 hover:bg-black/70 rounded-lg text-white backdrop-blur-sm transition-colors"
+                                            title="Share"
+                                          >
+                                            <Share2 size={14} />
+                                          </button>
+                                        </div>
+                                        <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center rounded-xl pointer-events-none">
+                                          <Maximize2 size={24} className="text-white" />
+                                        </div>
+                                      </div>
+                                    ) : (
+                                      <div className="flex items-center gap-3 p-4 bg-zinc-900 border border-white/5 rounded-xl hover:bg-zinc-800 transition-colors">
+                                        <div className="w-10 h-10 rounded-lg bg-zinc-800 flex items-center justify-center text-zinc-400">
+                                          {getFileIcon(msg.fileMimeType || '')}
+                                        </div>
+                                        <div className="flex-1 min-w-0">
+                                          <div className="text-xs font-bold text-zinc-100 truncate">{msg.fileName || 'Uploaded File'}</div>
+                                          <div className="text-[10px] text-zinc-500 uppercase tracking-wider">{msg.fileMimeType?.split('/')[1] || 'File'}</div>
+                                        </div>
+                                        <a 
+                                          href={msg.file} 
+                                          download={msg.fileName || 'file'}
+                                          onClick={(e) => e.stopPropagation()}
+                                          className="p-2 text-zinc-500 hover:text-white transition-colors"
+                                        >
+                                          <Download size={16} />
+                                        </a>
+                                      </div>
+                                    )
                                   )}
                                 </div>
                               )}
@@ -662,29 +920,76 @@ export default function ChatInterface({ initialMessages, onUpdateMessages }: Cha
             </div>
             
             <div className="flex-1 overflow-y-auto p-4 scrollbar-hide">
-              {messages.filter(m => m.image).length === 0 ? (
+              {messages.filter(m => m.file || m.fileId).length === 0 ? (
                 <div className="h-full flex flex-col items-center justify-center text-zinc-600 space-y-4">
                   <ImageIcon size={48} strokeWidth={1} />
                   <p className="text-xs font-medium">No images in this session yet</p>
                 </div>
               ) : (
                 <div className="grid grid-cols-2 gap-3">
-                  {messages.filter(m => m.image).map((msg, idx) => (
+                  {messages.filter(m => m.file || m.fileId).map((msg, idx) => (
                     <motion.div
                       key={msg.id}
                       initial={{ opacity: 0, scale: 0.9 }}
                       animate={{ opacity: 1, scale: 1 }}
                       transition={{ delay: idx * 0.05 }}
                       className="relative aspect-square rounded-xl overflow-hidden bg-zinc-900 border border-white/5 group cursor-pointer"
-                      onClick={() => setFullscreenImage(msg.image || null)}
+                      onClick={() => setFullscreenImage(msg.file || msg.fileId || null)}
                     >
-                      <img 
-                        src={msg.image} 
-                        alt="Gallery item" 
-                        className="w-full h-full object-cover transition-transform group-hover:scale-110"
-                      />
-                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                      {msg.fileId ? (
+                        <FileImage 
+                          fileId={msg.fileId} 
+                          alt="Gallery item" 
+                          className="w-full h-full object-cover transition-transform group-hover:scale-110"
+                        />
+                      ) : (
+                        <img 
+                          src={msg.file} 
+                          alt="Gallery item" 
+                          className="w-full h-full object-cover transition-transform group-hover:scale-110"
+                          referrerPolicy="no-referrer"
+                        />
+                      )}
+                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-2">
                         <Maximize2 size={18} className="text-white" />
+                        <div className="flex gap-2">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (msg.fileId) {
+                                handleDownload(msg.fileId, msg.fileName || 'image.png');
+                              } else if (msg.file) {
+                                const link = document.createElement('a');
+                                link.href = msg.file;
+                                link.download = msg.fileName || 'image.png';
+                                link.click();
+                              }
+                            }}
+                            className="p-1.5 bg-white/10 hover:bg-white/20 rounded-lg text-white backdrop-blur-md transition-all"
+                            title="Download"
+                          >
+                            <Download size={14} />
+                          </button>
+                          <button
+                            onClick={async (e) => {
+                              e.stopPropagation();
+                              if (msg.fileId) {
+                                const docRef = doc(db, 'session_files', msg.fileId);
+                                const docSnap = await getDoc(docRef);
+                                if (docSnap.exists()) {
+                                  const fileData = docSnap.data() as SessionFile;
+                                  handleShare(`data:${fileData.mimeType};base64,${fileData.data}`);
+                                }
+                              } else if (msg.file) {
+                                handleShare(msg.file);
+                              }
+                            }}
+                            className="p-1.5 bg-white/10 hover:bg-white/20 rounded-lg text-white backdrop-blur-md transition-all"
+                            title="Share"
+                          >
+                            <Share2 size={14} />
+                          </button>
+                        </div>
                       </div>
                     </motion.div>
                   ))}
@@ -702,35 +1007,87 @@ export default function ChatInterface({ initialMessages, onUpdateMessages }: Cha
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/95 z-[60] flex items-center justify-center p-4 md:p-12"
+            className="fixed inset-0 bg-black/95 z-[60] flex items-center justify-center p-4 md:p-12 overflow-auto"
           >
-            <div className="absolute top-4 right-4 flex items-center gap-2">
-              <a 
-                href={fullscreenImage} 
-                download="mova-ai-export.png"
-                className="p-3 bg-white/10 hover:bg-white/20 rounded-full text-white transition-all backdrop-blur-md"
-                title="Download Image"
-              >
-                <Download size={20} />
-              </a>
+            <div className="absolute top-4 right-4 flex items-center gap-2 z-[70]">
+              {(fullscreenImage?.startsWith('data:') || fullscreenDataUrl) && (
+                <>
+                  <button 
+                    onClick={() => setZoomScale(prev => Math.min(prev + 0.5, 4))}
+                    className="p-3 bg-white/10 hover:bg-white/20 rounded-full text-white transition-all backdrop-blur-md"
+                    title="Zoom In"
+                  >
+                    <ZoomIn size={20} />
+                  </button>
+                  <button 
+                    onClick={() => setZoomScale(prev => Math.max(prev - 0.5, 0.5))}
+                    className="p-3 bg-white/10 hover:bg-white/20 rounded-full text-white transition-all backdrop-blur-md"
+                    title="Zoom Out"
+                  >
+                    <ZoomOut size={20} />
+                  </button>
+                  <a 
+                    href={fullscreenDataUrl || fullscreenImage!} 
+                    download="mova-ai-export.png"
+                    className="p-3 bg-white/10 hover:bg-white/20 rounded-full text-white transition-all backdrop-blur-md"
+                    title="Download Image"
+                  >
+                    <Download size={20} />
+                  </a>
+                  <button 
+                    onClick={() => handleShare(fullscreenDataUrl || fullscreenImage!)}
+                    className="p-3 bg-white/10 hover:bg-white/20 rounded-full text-white transition-all backdrop-blur-md"
+                    title="Share Image"
+                  >
+                    <Share2 size={20} />
+                  </button>
+                </>
+              )}
               <button 
-                onClick={() => setFullscreenImage(null)}
+                onClick={() => {
+                  setFullscreenImage(null);
+                  setFullscreenDataUrl(null);
+                  setZoomScale(1);
+                }}
                 className="p-3 bg-white/10 hover:bg-white/20 rounded-full text-white transition-all backdrop-blur-md"
               >
                 <X size={20} />
               </button>
             </div>
             
-            <motion.img
-              initial={{ scale: 0.9, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              src={fullscreenImage}
-              alt="Fullscreen view"
-              className="max-w-full max-h-full object-contain rounded-lg shadow-2xl"
-            />
-          </motion.div>
-        )}
-      </AnimatePresence>
+            <div 
+              className="w-full h-full flex items-center justify-center transition-transform duration-200"
+              style={{ transform: `scale(${zoomScale})` }}
+            >
+              {fullscreenImage?.startsWith('data:') ? (
+              <motion.img
+                initial={{ scale: 0.9, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                src={fullscreenImage}
+                alt="Fullscreen view"
+                className="max-w-full max-h-full object-contain rounded-lg shadow-2xl"
+                referrerPolicy="no-referrer"
+              />
+            ) : (
+              <motion.div
+                initial={{ scale: 0.9, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                className="max-w-full max-h-full"
+              >
+                {fullscreenImage && (
+                  <FileImage 
+                    fileId={fullscreenImage} 
+                    alt="Fullscreen view" 
+                    className="max-w-full max-h-full object-contain rounded-lg shadow-2xl"
+                    onLoad={setFullscreenDataUrl}
+                  />
+                )}
+              </motion.div>
+            )}
+          </div>
+        </motion.div>
+      )}
+    </AnimatePresence>
 
       {/* Unified Model & Tools Menu */}
           <AnimatePresence>
@@ -742,22 +1099,37 @@ export default function ChatInterface({ initialMessages, onUpdateMessages }: Cha
                 className="absolute bottom-full left-0 mb-4 w-80 bg-zinc-900 border border-white/10 rounded-2xl shadow-2xl overflow-hidden z-50"
               >
                 <div className="p-4 space-y-6">
-                  {/* File Upload Section */}
-                  <div>
+                  {/* Quick Actions Section */}
+                  <div className="grid grid-cols-2 gap-2">
                     <button
                       onClick={() => {
-                        fileInputRef.current?.click();
+                        if (fileInputRef.current) {
+                          fileInputRef.current.accept = "image/*";
+                          fileInputRef.current.click();
+                        }
                         setIsMenuOpen(false);
                       }}
-                      className="w-full flex items-center gap-3 p-3 bg-zinc-800/50 hover:bg-zinc-800 rounded-xl transition-colors group"
+                      className="flex flex-col items-center gap-2 p-3 bg-zinc-800/50 hover:bg-zinc-800 rounded-xl transition-colors group"
                     >
                       <div className="w-10 h-10 rounded-lg bg-zinc-700 flex items-center justify-center text-zinc-300 group-hover:text-white transition-colors">
-                        <Paperclip size={20} />
+                        <ImageIcon size={20} />
                       </div>
-                      <div className="text-left">
-                        <div className="text-xs font-bold text-zinc-100">Upload File</div>
-                        <div className="text-[10px] text-zinc-500">Images, PDFs, Video, Audio</div>
+                      <div className="text-[10px] font-bold text-zinc-100 uppercase tracking-wider">Upload Image</div>
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (fileInputRef.current) {
+                          fileInputRef.current.accept = "video/*,audio/*,application/pdf,text/*";
+                          fileInputRef.current.click();
+                        }
+                        setIsMenuOpen(false);
+                      }}
+                      className="flex flex-col items-center gap-2 p-3 bg-zinc-800/50 hover:bg-zinc-800 rounded-xl transition-colors group"
+                    >
+                      <div className="w-10 h-10 rounded-lg bg-zinc-700 flex items-center justify-center text-zinc-300 group-hover:text-white transition-colors">
+                        <FileText size={20} />
                       </div>
+                      <div className="text-[10px] font-bold text-zinc-100 uppercase tracking-wider">Upload File</div>
                     </button>
                   </div>
 
@@ -769,32 +1141,41 @@ export default function ChatInterface({ initialMessages, onUpdateMessages }: Cha
                     </div>
                     <div className="grid grid-cols-1 gap-2">
                       {[
-                        { id: 'gemini-3.1-pro-preview', name: 'Pro 3.1', desc: 'Best for complex reasoning', tag: 'Smartest' },
-                        { id: 'gemini-3-flash-preview', name: 'Flash 3', desc: 'Balanced speed & intelligence', tag: 'Popular' },
-                        { id: 'gemini-flash-lite-latest', name: 'Flash Lite', desc: 'Lightweight & ultra-fast', tag: 'Fastest' }
+                        { id: 'gemini-3.1-pro-preview', name: 'Pro 3.1', desc: 'Best for complex reasoning', tag: 'Smartest', strength: 'Best for creative writing & deep analysis' },
+                        { id: 'gemini-3-flash-preview', name: 'Flash 3', desc: 'Balanced speed & intelligence', tag: 'Popular', strength: 'Fastest for chat & everyday tasks' },
+                        { id: 'gemini-flash-lite-latest', name: 'Flash Lite', desc: 'Lightweight & ultra-fast', tag: 'Fastest', strength: 'Ultra-low latency for simple queries' }
                       ].map(model => (
-                        <button
-                          key={model.id}
-                          onClick={() => {
-                            setSelectedChatModel(model.id);
-                            setIsMenuOpen(false);
-                          }}
-                          className={`flex items-center justify-between p-3 rounded-xl border transition-all ${
-                            selectedChatModel === model.id 
-                              ? 'bg-zinc-100 border-zinc-100 text-zinc-900' 
-                              : 'bg-zinc-800/30 border-white/5 text-zinc-400 hover:bg-zinc-800'
-                          }`}
-                        >
-                          <div className="text-left">
-                            <div className="text-xs font-bold">{model.name}</div>
-                            <div className={`text-[10px] ${selectedChatModel === model.id ? 'text-zinc-600' : 'text-zinc-500'}`}>{model.desc}</div>
-                          </div>
-                          <span className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded ${
-                            selectedChatModel === model.id ? 'bg-zinc-900/10 text-zinc-900' : 'bg-zinc-900 text-zinc-500'
-                          }`}>
-                            {model.tag}
-                          </span>
-                        </button>
+                        <div key={model.id} className="relative group/item">
+                          <button
+                            onClick={() => {
+                              setSelectedChatModel(model.id);
+                              setIsMenuOpen(false);
+                            }}
+                            className={`w-full flex items-center justify-between p-3 rounded-xl border transition-all ${
+                              selectedChatModel === model.id 
+                                ? 'bg-zinc-100 border-zinc-100 text-zinc-900' 
+                                : 'bg-zinc-800/30 border-white/5 text-zinc-400 hover:bg-zinc-800'
+                            }`}
+                          >
+                            <div className="text-left flex items-center gap-2">
+                              <div>
+                                <div className="text-xs font-bold">{model.name}</div>
+                                <div className={`text-[10px] ${selectedChatModel === model.id ? 'text-zinc-600' : 'text-zinc-500'}`}>{model.desc}</div>
+                              </div>
+                              <div className="relative group/info">
+                                <Info size={12} className="text-zinc-500 hover:text-zinc-300 cursor-help" />
+                                <div className="absolute left-0 bottom-full mb-2 w-48 p-2 bg-zinc-950 text-[10px] text-zinc-300 rounded-lg border border-white/10 opacity-0 invisible group-hover/info:opacity-100 group-hover/info:visible transition-all z-[60] shadow-2xl pointer-events-none">
+                                  {model.strength}
+                                </div>
+                              </div>
+                            </div>
+                            <span className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded ${
+                              selectedChatModel === model.id ? 'bg-zinc-900/10 text-zinc-900' : 'bg-zinc-900 text-zinc-500'
+                            }`}>
+                              {model.tag}
+                            </span>
+                          </button>
+                        </div>
                       ))}
                     </div>
                   </div>
@@ -819,33 +1200,42 @@ export default function ChatInterface({ initialMessages, onUpdateMessages }: Cha
                     </div>
                     <div className="grid grid-cols-1 gap-2">
                       {[
-                        { id: 'gemini-3-pro-image-preview', name: 'Pro Image', desc: 'Highest detail & quality', tag: 'Best' },
-                        { id: 'gemini-3.1-flash-image-preview', name: 'Flash HQ', desc: 'High quality & flexible', tag: 'HQ' },
-                        { id: 'gemini-2.5-flash-image', name: 'Flash Image', desc: 'Fast generation', tag: 'Fast' },
-                        { id: 'imagen-4.0-generate-001', name: 'Imagen 4', desc: 'Photorealistic results', tag: 'New' }
+                        { id: 'gemini-3-pro-image-preview', name: 'Pro Image', desc: 'Highest detail & quality', tag: 'Best', strength: 'High-quality image generation for professional use' },
+                        { id: 'gemini-3.1-flash-image-preview', name: 'Flash HQ', desc: 'High quality & flexible', tag: 'HQ', strength: 'Great balance of speed and high-resolution detail' },
+                        { id: 'gemini-2.5-flash-image', name: 'Flash Image', desc: 'Fast generation', tag: 'Fast', strength: 'Rapid generation for quick concepts and ideation' },
+                        { id: 'imagen-4.0-generate-001', name: 'Imagen 4', desc: 'Photorealistic results', tag: 'New', strength: 'Advanced photorealism and artistic texture control' }
                       ].map(model => (
-                        <button
-                          key={model.id}
-                          onClick={() => {
-                            setSelectedImageModel(model.id);
-                            setIsMenuOpen(false);
-                          }}
-                          className={`flex items-center justify-between p-3 rounded-xl border transition-all ${
-                            selectedImageModel === model.id 
-                              ? 'bg-zinc-100 border-zinc-100 text-zinc-900' 
-                              : 'bg-zinc-800/30 border-white/5 text-zinc-400 hover:bg-zinc-800'
-                          }`}
-                        >
-                          <div className="text-left">
-                            <div className="text-xs font-bold">{model.name}</div>
-                            <div className={`text-[10px] ${selectedImageModel === model.id ? 'text-zinc-600' : 'text-zinc-500'}`}>{model.desc}</div>
-                          </div>
-                          <span className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded ${
-                            selectedImageModel === model.id ? 'bg-zinc-900/10 text-zinc-900' : 'bg-zinc-900 text-zinc-500'
-                          }`}>
-                            {model.tag}
-                          </span>
-                        </button>
+                        <div key={model.id} className="relative group/item">
+                          <button
+                            onClick={() => {
+                              setSelectedImageModel(model.id);
+                              setIsMenuOpen(false);
+                            }}
+                            className={`w-full flex items-center justify-between p-3 rounded-xl border transition-all ${
+                              selectedImageModel === model.id 
+                                ? 'bg-zinc-100 border-zinc-100 text-zinc-900' 
+                                : 'bg-zinc-800/30 border-white/5 text-zinc-400 hover:bg-zinc-800'
+                            }`}
+                          >
+                            <div className="text-left flex items-center gap-2">
+                              <div>
+                                <div className="text-xs font-bold">{model.name}</div>
+                                <div className={`text-[10px] ${selectedImageModel === model.id ? 'text-zinc-600' : 'text-zinc-500'}`}>{model.desc}</div>
+                              </div>
+                              <div className="relative group/info">
+                                <Info size={12} className="text-zinc-500 hover:text-zinc-300 cursor-help" />
+                                <div className="absolute left-0 bottom-full mb-2 w-48 p-2 bg-zinc-950 text-[10px] text-zinc-300 rounded-lg border border-white/10 opacity-0 invisible group-hover/info:opacity-100 group-hover/info:visible transition-all z-[60] shadow-2xl pointer-events-none">
+                                  {model.strength}
+                                </div>
+                              </div>
+                            </div>
+                            <span className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded ${
+                              selectedImageModel === model.id ? 'bg-zinc-900/10 text-zinc-900' : 'bg-zinc-900 text-zinc-500'
+                            }`}>
+                              {model.tag}
+                            </span>
+                          </button>
+                        </div>
                       ))}
                     </div>
                   </div>
@@ -939,6 +1329,52 @@ export default function ChatInterface({ initialMessages, onUpdateMessages }: Cha
             )}
           </AnimatePresence>
 
+          {/* Mode Selector Bar (Mobile) */}
+          <div className="md:hidden flex items-center justify-center gap-2 mb-3">
+            <button
+              onClick={() => {
+                setIsGenerationMode(false);
+                setIsOrchestrationMode(false);
+              }}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-wider transition-all ${
+                !isGenerationMode && !isOrchestrationMode 
+                  ? 'bg-zinc-100 text-zinc-900' 
+                  : 'bg-zinc-900 text-zinc-500'
+              }`}
+            >
+              <MessageSquare size={12} />
+              Chat
+            </button>
+            <button
+              onClick={() => {
+                setIsGenerationMode(true);
+                setIsOrchestrationMode(false);
+              }}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-wider transition-all ${
+                isGenerationMode 
+                  ? 'bg-emerald-500 text-white' 
+                  : 'bg-zinc-900 text-zinc-500'
+              }`}
+            >
+              <Sparkles size={12} />
+              Gen
+            </button>
+            <button
+              onClick={() => {
+                setIsOrchestrationMode(true);
+                setIsGenerationMode(false);
+              }}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-wider transition-all ${
+                isOrchestrationMode 
+                  ? 'bg-indigo-500 text-white' 
+                  : 'bg-zinc-900 text-zinc-500'
+              }`}
+            >
+              <Layers size={12} />
+              Orch
+            </button>
+          </div>
+
           {/* Example Prompts */}
           <AnimatePresence>
             {isGenerationMode && !input && !selectedFile && (
@@ -953,7 +1389,7 @@ export default function ChatInterface({ initialMessages, onUpdateMessages }: Cha
                     <Sparkles size={10} className="text-emerald-500 animate-pulse" />
                     <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 whitespace-nowrap">Try:</span>
                   </div>
-                  {EXAMPLE_PROMPTS.map((prompt, index) => (
+                  {currentPrompts.map((prompt, index) => (
                     <button
                       key={index}
                       onClick={() => setInput(prompt)}
@@ -972,20 +1408,260 @@ export default function ChatInterface({ initialMessages, onUpdateMessages }: Cha
             onSubmit={handleSubmit}
             className={`relative flex items-end gap-2 p-1.5 border rounded-3xl transition-all ${
               (isGenerationMode || isOrchestrationMode) && !selectedFile
-                ? 'bg-zinc-900 border-white/10 text-white'
+                ? 'bg-zinc-900 border-emerald-500/30 shadow-[0_0_20px_rgba(16,185,129,0.1)]'
                 : 'bg-zinc-900 border-white/5'
             }`}
           >
             <div className="flex items-center">
-              <button
-                type="button"
-                onClick={() => setIsMenuOpen(!isMenuOpen)}
-                className={`p-2 transition-all ${
-                  isMenuOpen ? 'text-white rotate-45' : 'text-zinc-500 hover:text-zinc-300'
-                }`}
-              >
-                <Plus size={20} />
-              </button>
+              {isGenerationMode && !selectedFile ? (
+                <div className="flex items-center gap-1">
+                  <div className="relative">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsModelSelectorOpen(!isModelSelectorOpen);
+                        setIsAdvancedSettingsOpen(false);
+                      }}
+                      className="flex items-center gap-1.5 p-2 px-3 rounded-2xl bg-zinc-800 text-zinc-300 hover:text-white transition-all border border-white/5"
+                    >
+                      <ImageIcon size={16} className="text-emerald-500" />
+                      <span className="text-[10px] font-bold uppercase tracking-wider hidden sm:inline">{activeImageModel.name}</span>
+                      <ChevronDown size={12} className={`transition-transform ${isModelSelectorOpen ? 'rotate-180' : ''}`} />
+                    </button>
+
+                    <AnimatePresence>
+                      {isModelSelectorOpen && (
+                        <motion.div
+                          initial={{ opacity: 0, y: -10, scale: 0.95 }}
+                          animate={{ opacity: 1, y: 0, scale: 1 }}
+                          exit={{ opacity: 0, y: -10, scale: 0.95 }}
+                          className="absolute bottom-full left-0 mb-3 w-64 bg-zinc-900 border border-white/10 rounded-2xl shadow-2xl overflow-hidden z-50"
+                        >
+                          <div className="p-2 space-y-1">
+                            {IMAGE_MODELS.map(model => (
+                              <button
+                                key={model.id}
+                                type="button"
+                                onClick={() => {
+                                  setSelectedImageModel(model.id);
+                                  setIsModelSelectorOpen(false);
+                                }}
+                                className={`w-full flex flex-col p-2.5 rounded-xl text-left transition-all ${
+                                  selectedImageModel === model.id 
+                                    ? 'bg-emerald-500 text-white' 
+                                    : 'hover:bg-zinc-800 text-zinc-400'
+                                }`}
+                              >
+                                <div className="flex items-center justify-between mb-0.5">
+                                  <span className="text-[11px] font-bold uppercase tracking-wider">{model.name}</span>
+                                  <span className={`text-[8px] font-bold uppercase px-1 rounded ${
+                                    selectedImageModel === model.id ? 'bg-white/20' : 'bg-zinc-800'
+                                  }`}>{model.tag}</span>
+                                </div>
+                                <span className={`text-[9px] ${selectedImageModel === model.id ? 'text-white/80' : 'text-zinc-500'}`}>{model.desc}</span>
+                              </button>
+                            ))}
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
+
+                  <div className="relative">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsAdvancedSettingsOpen(!isAdvancedSettingsOpen);
+                        setIsModelSelectorOpen(false);
+                      }}
+                      className={`p-2 rounded-xl transition-all border ${
+                        isAdvancedSettingsOpen 
+                          ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-400' 
+                          : 'bg-zinc-800 border-white/5 text-zinc-400 hover:text-white'
+                      }`}
+                      title="Advanced Settings"
+                    >
+                      <Settings2 size={16} />
+                    </button>
+
+                    <AnimatePresence>
+                      {isAdvancedSettingsOpen && (
+                        <motion.div
+                          initial={{ opacity: 0, y: -10, scale: 0.95 }}
+                          animate={{ opacity: 1, y: 0, scale: 1 }}
+                          exit={{ opacity: 0, y: -10, scale: 0.95 }}
+                          className="absolute bottom-full left-0 mb-3 w-72 bg-zinc-900 border border-white/10 rounded-2xl shadow-2xl p-4 z-50 space-y-4"
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">Advanced Parameters</span>
+                            <button 
+                              onClick={() => {
+                                setAspectRatio('1:1');
+                                setNegativePrompt('');
+                                setSeed(undefined);
+                                setSelectedStyle('');
+                                setUseSearch(false);
+                              }}
+                              className="text-[9px] font-bold uppercase text-zinc-600 hover:text-zinc-400 transition-colors"
+                            >
+                              Reset
+                            </button>
+                          </div>
+
+                          {/* Search Grounding */}
+                          {(selectedImageModel === 'gemini-3-pro-image-preview' || selectedImageModel === 'gemini-3.1-flash-image-preview') && (
+                            <div className="flex items-center justify-between p-2 bg-emerald-500/5 rounded-xl border border-emerald-500/10">
+                              <div className="flex items-center gap-2">
+                                <Search size={12} className="text-emerald-500" />
+                                <div className="flex flex-col">
+                                  <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-300">Search Grounding</span>
+                                  <span className="text-[8px] text-zinc-500">Use live web data for generation</span>
+                                </div>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => setUseSearch(!useSearch)}
+                                className={`w-8 h-4 rounded-full transition-all relative ${
+                                  useSearch ? 'bg-emerald-500' : 'bg-zinc-700'
+                                }`}
+                              >
+                                <div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full transition-all ${
+                                  useSearch ? 'left-4.5' : 'left-0.5'
+                                }`} />
+                              </button>
+                            </div>
+                          )}
+
+                          {/* Aspect Ratio */}
+                          <div className="space-y-2">
+                            <div className="flex items-center gap-2 text-[10px] font-bold text-zinc-400 uppercase tracking-wider">
+                              <Square size={10} />
+                              Aspect Ratio
+                            </div>
+                            <div className="grid grid-cols-5 gap-1">
+                              {(['1:1', '3:4', '4:3', '9:16', '16:9'] as const).map(ratio => (
+                                <button
+                                  key={ratio}
+                                  type="button"
+                                  onClick={() => setAspectRatio(ratio)}
+                                  className={`py-1.5 rounded-md text-[9px] font-bold transition-all border ${
+                                    aspectRatio === ratio 
+                                      ? 'bg-emerald-500 border-emerald-500 text-white' 
+                                      : 'bg-zinc-800 border-white/5 text-zinc-500 hover:bg-zinc-700'
+                                  }`}
+                                >
+                                  {ratio}
+                                </button>
+                              ))}
+                              {selectedImageModel === 'gemini-3.1-flash-image-preview' && (['1:4', '1:8', '4:1', '8:1'] as const).map(ratio => (
+                                <button
+                                  key={ratio}
+                                  type="button"
+                                  onClick={() => setAspectRatio(ratio)}
+                                  className={`py-1.5 rounded-md text-[9px] font-bold transition-all border ${
+                                    aspectRatio === ratio 
+                                      ? 'bg-emerald-500 border-emerald-500 text-white' 
+                                      : 'bg-zinc-800 border-white/5 text-zinc-500 hover:bg-zinc-700'
+                                  }`}
+                                >
+                                  {ratio}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+
+                          {/* Artistic Style */}
+                          <div className="space-y-2">
+                            <div className="flex items-center gap-2 text-[10px] font-bold text-zinc-400 uppercase tracking-wider">
+                              <Palette size={10} />
+                              Artistic Style
+                            </div>
+                            <div className="grid grid-cols-2 gap-1 max-h-32 overflow-y-auto pr-1 scrollbar-hide">
+                              {[
+                                { id: '', name: 'None' },
+                                { id: 'watercolor', name: 'Watercolor' },
+                                { id: 'oil painting', name: 'Oil Painting' },
+                                { id: '3d render', name: '3D Render' },
+                                { id: 'cyberpunk', name: 'Cyberpunk' },
+                                { id: 'minimalist', name: 'Minimalist' },
+                                { id: 'anime', name: 'Anime' },
+                                { id: 'pop art', name: 'Pop Art' },
+                                { id: 'sketch', name: 'Sketch' },
+                                { id: 'pixel art', name: 'Pixel Art' },
+                                { id: 'vaporwave', name: 'Vaporwave' },
+                                { id: 'synthwave', name: 'Synthwave' }
+                              ].map(style => (
+                                <button
+                                  key={style.id}
+                                  type="button"
+                                  onClick={() => setSelectedStyle(style.id)}
+                                  className={`py-1.5 px-2 rounded-md text-[9px] font-bold text-left transition-all border ${
+                                    selectedStyle === style.id 
+                                      ? 'bg-emerald-500 border-emerald-500 text-white' 
+                                      : 'bg-zinc-800 border-white/5 text-zinc-500 hover:bg-zinc-700'
+                                  }`}
+                                >
+                                  {style.name}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+
+                          {/* Negative Prompt */}
+                          <div className="space-y-2">
+                            <div className="flex items-center gap-2 text-[10px] font-bold text-zinc-400 uppercase tracking-wider">
+                              <X size={10} />
+                              Negative Prompt
+                            </div>
+                            <input 
+                              type="text"
+                              value={negativePrompt}
+                              onChange={(e) => setNegativePrompt(e.target.value)}
+                              placeholder="Elements to exclude..."
+                              className="w-full bg-zinc-800 border border-white/5 rounded-lg px-3 py-2 text-[11px] text-zinc-100 placeholder-zinc-600 focus:ring-1 focus:ring-emerald-500/50 outline-none transition-all"
+                            />
+                          </div>
+
+                          {/* Seed */}
+                          <div className="space-y-2">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2 text-[10px] font-bold text-zinc-400 uppercase tracking-wider">
+                                <Hash size={10} />
+                                Seed (Optional)
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => setSeed(Math.floor(Math.random() * 1000000))}
+                                className="p-1 text-zinc-500 hover:text-emerald-500 transition-colors"
+                                title="Randomize Seed"
+                              >
+                                <Dices size={12} />
+                              </button>
+                            </div>
+                            <input 
+                              type="number"
+                              value={seed || ''}
+                              onChange={(e) => setSeed(e.target.value ? parseInt(e.target.value) : undefined)}
+                              placeholder="Random by default"
+                              className="w-full bg-zinc-800 border border-white/5 rounded-lg px-3 py-2 text-[11px] text-zinc-100 placeholder-zinc-600 focus:ring-1 focus:ring-emerald-500/50 outline-none transition-all"
+                            />
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setIsMenuOpen(!isMenuOpen)}
+                  className={`p-2 transition-all ${
+                    isMenuOpen ? 'text-white rotate-45' : 'text-zinc-500 hover:text-zinc-300'
+                  }`}
+                >
+                  <Plus size={20} />
+                </button>
+              )}
             </div>
             <input 
               type="file" 

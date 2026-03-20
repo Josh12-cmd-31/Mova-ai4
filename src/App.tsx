@@ -46,7 +46,21 @@ import {
   orderBy,
   getDocFromServer
 } from 'firebase/firestore';
-import { ChatSession, Message } from './types';
+import { ChatSession, Message, SessionFile } from './types';
+
+// Helper to remove undefined values for Firestore
+function sanitizeData(data: any): any {
+  if (Array.isArray(data)) {
+    return data.map(v => sanitizeData(v));
+  } else if (data !== null && typeof data === 'object') {
+    return Object.fromEntries(
+      Object.entries(data)
+        .filter(([_, v]) => v !== undefined)
+        .map(([k, v]) => [k, sanitizeData(v)])
+    );
+  }
+  return data;
+}
 
 export default function App() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -137,10 +151,28 @@ export default function App() {
     };
     
     try {
-      await setDoc(doc(db, 'sessions', newId), newSession);
+      await setDoc(doc(db, 'sessions', newId), sanitizeData(newSession));
       setActiveSessionId(newId);
     } catch (error) {
       handleFirestoreError(error, OperationType.WRITE, `sessions/${newId}`);
+    }
+  };
+
+  const saveSessionFile = async (sessionId: string, data: string, mimeType: string): Promise<string> => {
+    const fileId = Date.now().toString() + Math.random().toString(36).substring(2, 9);
+    const sessionFile: SessionFile = {
+      id: fileId,
+      sessionId,
+      data,
+      mimeType,
+      createdAt: Date.now()
+    };
+    try {
+      await setDoc(doc(db, 'session_files', fileId), sanitizeData(sessionFile));
+      return fileId;
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, `session_files/${fileId}`);
+      throw error;
     }
   };
 
@@ -157,12 +189,50 @@ export default function App() {
       }
     }
 
-    const updatedSession = {
+    // Handle large files by moving them to session_files collection
+    const processedMessages = await Promise.all(messages.map(async (msg) => {
+      const updatedMsg = { ...msg };
+      
+      // If file is present and is a base64 string, save it separately
+      if (updatedMsg.file && updatedMsg.file.startsWith('data:')) {
+        const parts = updatedMsg.file.split(',');
+        const mime = parts[0].split(':')[1].split(';')[0];
+        const b64 = parts[1];
+        
+        // Only move to separate collection if it's large or if we want to be safe
+        // For now, let's move all images to be safe from the 1MB limit
+        try {
+          const fileId = await saveSessionFile(sessionId, b64, mime);
+          updatedMsg.fileId = fileId;
+          delete updatedMsg.file; // Remove base64 from session doc
+        } catch (e) {
+          console.error("Failed to save session file:", e);
+        }
+      }
+
+      if (updatedMsg.beforeFile && updatedMsg.beforeFile.startsWith('data:')) {
+        const parts = updatedMsg.beforeFile.split(',');
+        const mime = parts[0].split(':')[1].split(';')[0];
+        const b64 = parts[1];
+        
+        try {
+          const fileId = await saveSessionFile(sessionId, b64, mime);
+          updatedMsg.beforeFileId = fileId;
+          delete updatedMsg.beforeFile; // Remove base64 from session doc
+        } catch (e) {
+          console.error("Failed to save session beforeFile:", e);
+        }
+      }
+
+      return updatedMsg;
+    }));
+
+    const updatedSession = sanitizeData({
       ...session,
-      messages,
+      messages: processedMessages,
       title: newTitle,
       updatedAt: Date.now()
-    };
+    });
 
     try {
       await setDoc(doc(db, 'sessions', sessionId), updatedSession);

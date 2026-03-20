@@ -132,7 +132,27 @@ export async function chatWithGemini(message: string, history: any[] = [], selec
       const chat = ai.chats.create({
         model: model,
         config: {
-          systemInstruction: "You are mova ai, an advanced multimodal AI system. You are precise, analytical, and strategic. When asked to create content (like songs, poems, or stories), provide only the title and the content itself without any conversational filler or explanations. For songs, clearly separate and label sections like Verse, Chorus, Pre-Chorus, etc. Do not use Markdown symbols like '#' or '*' in your output. Maintain a professional and confident tone.",
+          systemInstruction: `You are Mova AI, an advanced multimodal AI system specializing in creative and technical writing. You are precise, analytical, and strategic. 
+
+CAPABILITIES:
+- Creative Writing: You excel at generating high-quality song lyrics, movie/play scripts, short stories, and poetry based on any given theme, mood, or genre.
+- Technical Writing: You provide detailed technical documentation, API guides, whitepapers, and structured reports.
+- Tone Adaptation: You can adapt your tone to be formal, academic, persuasive, inspirational, or conversational as requested by the user.
+- Structure: You maintain high narrative coherence and professional structure across all formats.
+
+COHERENCE PROTOCOL:
+- Logical Flow: Ensure every paragraph or section transitions smoothly to the next.
+- Consistency: Maintain consistent character voices, technical terminology, and narrative perspective.
+- Structural Integrity: Adhere strictly to the requested format's standard conventions (e.g., script formatting, song structure).
+- Thematic Unity: Ensure all parts of the response contribute to the central objective or theme.
+
+RULES:
+- When asked to create content (like songs, scripts, or documentation), provide only the title and the content itself without any conversational filler or explanations.
+- For songs, generate lyrics that strictly adhere to the requested theme, mood, or genre. Clearly separate and label sections like [Verse 1], [Chorus], [Verse 2], [Bridge], [Outro], etc.
+- For scripts, follow standard industry formatting (Scene Headings, Action Lines, Character Names, and Dialogue).
+- For technical documentation, use clear headings, structured lists, and logical sections.
+- Do not use Markdown symbols like '#' or '*' in your output. Use plain text formatting with clear spacing and capitalization for structure.
+- Maintain a professional and confident tone by default unless a specific tone is requested.`,
         },
       });
 
@@ -165,7 +185,27 @@ export async function chatWithGemini(message: string, history: any[] = [], selec
       const completion = await openai.chat.completions.create({
         model: "gpt-4o",
         messages: [
-          { role: "system", content: "You are mova ai, an advanced multimodal AI system. You are precise, analytical, and strategic. When asked to create content (like songs, poems, or stories), provide only the title and the content itself without any conversational filler or explanations. For songs, clearly separate and label sections like Verse, Chorus, Pre-Chorus, etc. Do not use Markdown symbols like '#' or '*' in your output. Maintain a professional and confident tone." },
+          { role: "system", content: `You are Mova AI, an advanced multimodal AI system specializing in creative and technical writing. You are precise, analytical, and strategic. 
+
+CAPABILITIES:
+- Creative Writing: High-quality song lyrics, movie/play scripts, short stories, and poetry based on any given theme, mood, or genre.
+- Technical Writing: Detailed technical documentation, API guides, whitepapers, and structured reports.
+- Tone Adaptation: Adapt tone to be formal, academic, persuasive, inspirational, or conversational as requested.
+- Structure: Maintain high narrative coherence and professional structure across all formats.
+
+COHERENCE PROTOCOL:
+- Logical Flow: Ensure every paragraph or section transitions smoothly to the next.
+- Consistency: Maintain consistent character voices, technical terminology, and narrative perspective.
+- Structural Integrity: Adhere strictly to the requested format's standard conventions (e.g., script formatting, song structure).
+- Thematic Unity: Ensure all parts of the response contribute to the central objective or theme.
+
+RULES:
+- When asked to create content, provide only the title and the content itself without any conversational filler or explanations.
+- For songs, strictly adhere to the requested theme, mood, or genre. Clearly separate and label sections ([Verse 1], [Chorus], [Verse 2], [Bridge], [Outro], etc.).
+- For scripts, follow standard industry formatting (Scene Headings, Action Lines, Character Names, and Dialogue).
+- For technical documentation, use clear headings, structured lists, and logical sections.
+- Do not use Markdown symbols like '#' or '*' in your output. Use plain text formatting.
+- Maintain a professional and confident tone by default unless a specific tone is requested.` },
           ...history.map(h => ({ 
             role: (h.role === 'user' ? 'user' : 'assistant') as "user" | "assistant", 
             content: h.content 
@@ -189,13 +229,42 @@ export async function chatWithGemini(message: string, history: any[] = [], selec
   handleGeminiError(lastError);
 }
 
-async function generateImageWithRetry(ai: any, modelName: string, prompt: string, retries = 5): Promise<GenerateContentResponse> {
+export interface ImageOptions {
+  aspectRatio?: "1:1" | "3:4" | "4:3" | "9:16" | "16:9" | "1:4" | "1:8" | "4:1" | "8:1";
+  negativePrompt?: string;
+  seed?: number;
+  style?: string;
+  useSearch?: boolean;
+}
+
+async function generateImageWithRetry(ai: any, modelName: string, prompt: string, options: ImageOptions = {}, retries = 5): Promise<GenerateContentResponse> {
   try {
+    const config: any = {
+      imageConfig: {
+        aspectRatio: options.aspectRatio,
+        seed: options.seed,
+      }
+    };
+
+    if (options.useSearch && (modelName === 'gemini-3-pro-image-preview' || modelName === 'gemini-3.1-flash-image-preview')) {
+      config.tools = [
+        {
+          googleSearch: {
+            searchTypes: {
+              webSearch: {},
+              imageSearch: modelName === 'gemini-3.1-flash-image-preview' ? {} : undefined,
+            }
+          },
+        },
+      ];
+    }
+
     const response = await ai.models.generateContent({
       model: modelName,
       contents: {
         parts: [{ text: prompt }],
       },
+      config
     });
     return response;
   } catch (error: any) {
@@ -203,24 +272,33 @@ async function generateImageWithRetry(ai: any, modelName: string, prompt: string
       const delayTime = (6 - retries) * 2000;
       console.warn(`Transient error, retrying in ${delayTime}ms... (${retries} retries left)`);
       await delay(delayTime);
-      return generateImageWithRetry(ai, modelName, prompt, retries - 1);
+      return generateImageWithRetry(ai, modelName, prompt, options, retries - 1);
     }
     throw error;
   }
 }
 
-export async function generateImage(prompt: string, model: string = "gemini-2.5-flash-image") {
+export async function generateImage(prompt: string, model: string = "gemini-2.5-flash-image", options: ImageOptions = {}) {
   try {
     const ai = getGeminiModel();
     
+    // Construct enhanced prompt with style and negative prompt if provided
+    let enhancedPrompt = prompt;
+    if (options.style) {
+      enhancedPrompt = `In the style of ${options.style}: ${enhancedPrompt}`;
+    }
+    if (options.negativePrompt) {
+      enhancedPrompt = `${enhancedPrompt}. Negative prompt (exclude these elements): ${options.negativePrompt}`;
+    }
+
     // Handle Imagen models differently
     if (model.startsWith("imagen-")) {
       const response = await ai.models.generateImages({
         model: model,
-        prompt: prompt,
+        prompt: enhancedPrompt,
         config: {
           numberOfImages: 1,
-          aspectRatio: "1:1",
+          aspectRatio: options.aspectRatio || "1:1",
         },
       });
       
@@ -229,7 +307,7 @@ export async function generateImage(prompt: string, model: string = "gemini-2.5-
     }
 
     // Handle Nano Banana series
-    const response = await generateImageWithRetry(ai, model, prompt);
+    const response = await generateImageWithRetry(ai, model, enhancedPrompt, options);
 
     let generatedImageB64: string | null = null;
     let textResponse: string = "";

@@ -3,12 +3,22 @@ export interface Message {
   role: 'user' | 'assistant';
   content: string;
   file?: string;
+  fileId?: string;
   fileName?: string;
   fileMimeType?: string;
   beforeFile?: string;
+  beforeFileId?: string;
   isEditing?: boolean;
   isError?: boolean;
   errorCode?: string;
+}
+
+export interface SessionFile {
+  id: string;
+  sessionId: string;
+  data: string;
+  mimeType: string;
+  createdAt: number;
 }
 
 export interface ChatSession {

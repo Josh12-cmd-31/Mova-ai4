@@ -25,12 +25,29 @@
         "updatedAt": { "type": "number", "description": "Timestamp when the session was last updated." }
       },
       "required": ["id", "userId", "title", "messages", "createdAt", "updatedAt"]
+    },
+    "SessionFile": {
+      "title": "SessionFile",
+      "description": "A file (image, etc.) associated with a chat session.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique identifier for the file." },
+        "sessionId": { "type": "string", "description": "The ID of the session this file belongs to." },
+        "data": { "type": "string", "description": "The base64 encoded data of the file." },
+        "mimeType": { "type": "string", "description": "The MIME type of the file." },
+        "createdAt": { "type": "number", "description": "Timestamp when the file was created." }
+      },
+      "required": ["id", "sessionId", "data", "mimeType", "createdAt"]
     }
   },
   "firestore": {
     "/sessions/{sessionId}": {
       "schema": "ChatSession",
       "description": "Collection of chat sessions."
+    },
+    "/session_files/{fileId}": {
+      "schema": "SessionFile",
+      "description": "Collection of files associated with chat sessions."
     }
   }
 }
