@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
+import { useTranslation } from 'react-i18next';
 import { 
   Send, 
   Image as ImageIcon, 
@@ -38,7 +39,8 @@ import {
   Dices,
   Share2,
   ZoomIn,
-  ZoomOut
+  ZoomOut,
+  Globe
 } from 'lucide-react';
 import { chatWithGemini, analyzeFile, editImage, generateImage, GeminiError, ImageOptions } from '../services/gemini';
 import { Message, SessionFile } from '../types';
@@ -202,6 +204,7 @@ interface ChatInterfaceProps {
 }
 
 export default function ChatInterface({ initialMessages, onUpdateMessages }: ChatInterfaceProps): React.JSX.Element {
+  const { t } = useTranslation();
   const [messages, setMessages] = useState<Message[]>(initialMessages);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -635,7 +638,7 @@ export default function ChatInterface({ initialMessages, onUpdateMessages }: Cha
           <div className="w-8 h-8 rounded-lg bg-zinc-100 flex items-center justify-center text-zinc-900 font-bold text-xs">
             M
           </div>
-          <span className="font-semibold text-sm text-zinc-100">mova ai</span>
+          <span className="font-semibold text-sm text-zinc-100">{t('app_name')}</span>
         </div>
         
         <div className="flex items-center gap-4">
@@ -652,7 +655,7 @@ export default function ChatInterface({ initialMessages, onUpdateMessages }: Cha
                   : 'text-zinc-500 hover:text-zinc-300'
               }`}
             >
-              Chat
+              {t('chat')}
             </button>
             <button
               onClick={() => {
@@ -665,7 +668,7 @@ export default function ChatInterface({ initialMessages, onUpdateMessages }: Cha
                   : 'text-zinc-500 hover:text-zinc-300'
               }`}
             >
-              Generate
+              {t('generate')}
             </button>
             <button
               onClick={() => {
@@ -678,7 +681,7 @@ export default function ChatInterface({ initialMessages, onUpdateMessages }: Cha
                   : 'text-zinc-500 hover:text-zinc-300'
               }`}
             >
-              Orchestrate
+              {t('orchestrate')}
             </button>
           </div>
 
@@ -688,7 +691,7 @@ export default function ChatInterface({ initialMessages, onUpdateMessages }: Cha
             className="flex items-center gap-2 px-3 py-1.5 bg-zinc-900 rounded-full border border-white/5 text-zinc-400 hover:text-zinc-100 transition-colors"
           >
             <ImageIcon size={14} />
-            <span className="text-[10px] font-bold uppercase tracking-wider">Gallery</span>
+            <span className="text-[10px] font-bold uppercase tracking-wider">{t('gallery')}</span>
           </button>
         </div>
       </div>
@@ -1493,7 +1496,7 @@ export default function ChatInterface({ initialMessages, onUpdateMessages }: Cha
                           className="absolute bottom-full left-0 mb-3 w-72 bg-zinc-900 border border-white/10 rounded-2xl shadow-2xl p-4 z-50 space-y-4"
                         >
                           <div className="flex items-center justify-between">
-                            <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">Advanced Parameters</span>
+                            <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">{t('advanced_parameters')}</span>
                             <button 
                               onClick={() => {
                                 setAspectRatio('1:1');
@@ -1504,7 +1507,7 @@ export default function ChatInterface({ initialMessages, onUpdateMessages }: Cha
                               }}
                               className="text-[9px] font-bold uppercase text-zinc-600 hover:text-zinc-400 transition-colors"
                             >
-                              Reset
+                              {t('reset')}
                             </button>
                           </div>
 
@@ -1514,8 +1517,8 @@ export default function ChatInterface({ initialMessages, onUpdateMessages }: Cha
                               <div className="flex items-center gap-2">
                                 <Search size={12} className="text-emerald-500" />
                                 <div className="flex flex-col">
-                                  <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-300">Search Grounding</span>
-                                  <span className="text-[8px] text-zinc-500">Use live web data for generation</span>
+                                  <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-300">{t('search_grounding')}</span>
+                                  <span className="text-[8px] text-zinc-500">{t('search_grounding_desc')}</span>
                                 </div>
                               </div>
                               <button
@@ -1682,10 +1685,10 @@ export default function ChatInterface({ initialMessages, onUpdateMessages }: Cha
               }}
               placeholder={
                 isRecording
-                  ? "Listening..."
+                  ? t('listening')
                   : selectedFile 
-                    ? (isEditingMode ? "Describe edits..." : "Ask about file...") 
-                    : (isGenerationMode ? "Describe image to generate..." : isOrchestrationMode ? "Describe complex task for orchestration..." : "Message mova ai...")
+                    ? (isEditingMode ? t('describe_edits') : t('ask_about_file')) 
+                    : (isGenerationMode ? t('describe_image') : isOrchestrationMode ? t('describe_orchestration') : t('message_placeholder'))
               }
               className={`flex-1 max-h-48 min-h-[40px] py-2 bg-transparent border-none focus:ring-0 text-sm resize-none ${
                 (isGenerationMode || isOrchestrationMode) && !selectedFile ? 'placeholder-zinc-500 text-zinc-100' : 'text-zinc-100'
@@ -1722,7 +1725,7 @@ export default function ChatInterface({ initialMessages, onUpdateMessages }: Cha
                 ) : isGenerationMode && !selectedFile ? (
                   <>
                     <Sparkles size={18} />
-                    <span className="text-[11px] font-bold uppercase tracking-wider">Generate</span>
+                    <span className="text-[11px] font-bold uppercase tracking-wider">{t('generate')}</span>
                   </>
                 ) : (
                   <Send size={18} />
@@ -1732,7 +1735,7 @@ export default function ChatInterface({ initialMessages, onUpdateMessages }: Cha
           </form>
           <div className="mt-2 flex justify-center">
             <span className="text-[10px] text-zinc-400 font-medium">
-              mova ai can make mistakes. Check important info.
+              {t('mistakes_warning')}
             </span>
           </div>
         </div>

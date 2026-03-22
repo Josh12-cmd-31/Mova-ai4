@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
+import { useTranslation } from 'react-i18next';
 import { 
   LayoutDashboard, 
   MessageSquare, 
@@ -18,7 +19,8 @@ import {
   Plus,
   Download,
   Copy,
-  Check
+  Check,
+  Globe
 } from 'lucide-react';
 import ChatInterface from './components/ChatInterface';
 import { 
@@ -63,6 +65,7 @@ function sanitizeData(data: any): any {
 }
 
 export default function App() {
+  const { t, i18n } = useTranslation();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
@@ -138,12 +141,12 @@ export default function App() {
     const newSession: ChatSession = {
       id: newId,
       userId: user.uid,
-      title: 'New Chat',
+      title: t('new_chat'),
       messages: [
         {
           id: '1',
           role: 'assistant',
-          content: `How can I help you today${welcomeName}?`
+          content: `${t('welcome_message')}${welcomeName}`
         }
       ],
       createdAt: Date.now(),
@@ -182,7 +185,7 @@ export default function App() {
     if (!session) return;
 
     let newTitle = session.title;
-    if (session.title === 'New Chat') {
+    if (session.title === t('new_chat')) {
       const firstUserMsg = messages.find(m => m.role === 'user');
       if (firstUserMsg) {
         newTitle = firstUserMsg.content.slice(0, 30) + (firstUserMsg.content.length > 30 ? '...' : '');
@@ -360,7 +363,7 @@ export default function App() {
     ).join('\n');
     
     navigator.clipboard.writeText(content).then(() => {
-      alert("Chat history copied to clipboard!");
+      alert(t('copied'));
     });
   };
 
@@ -371,7 +374,7 @@ export default function App() {
           <div className="w-12 h-12 bg-zinc-100 rounded-xl flex items-center justify-center text-zinc-900 animate-pulse">
             <Zap size={24} />
           </div>
-          <span className="text-sm font-medium animate-pulse">Initializing mova ai...</span>
+          <span className="text-sm font-medium animate-pulse">Initializing {t('app_name')}...</span>
         </div>
       </div>
     );
@@ -388,7 +391,7 @@ export default function App() {
           {verificationSent ? (
             <div className="space-y-6 text-center w-full">
               <div className="space-y-2">
-                <h1 className="text-2xl font-bold tracking-tight text-emerald-400">Verify your email</h1>
+                <h1 className="text-2xl font-bold tracking-tight text-emerald-400">{t('verification_sent')}</h1>
                 <p className="text-zinc-400 text-sm">
                   We've sent a verification link to your email. Please check your inbox and verify your account.
                 </p>
@@ -400,17 +403,17 @@ export default function App() {
                 onClick={() => setVerificationSent(false)}
                 className="w-full bg-zinc-100 text-zinc-900 py-3 rounded-xl font-semibold hover:bg-white transition-all shadow-lg"
               >
-                Login
+                {t('sign_in')}
               </button>
             </div>
           ) : (
             <>
               <div className="space-y-2 text-center">
                 <h1 className="text-2xl font-bold tracking-tight">
-                  {isSignUp ? 'Create an account' : 'Welcome back'}
+                  {isSignUp ? t('sign_up') : t('sign_in')}
                 </h1>
                 <p className="text-zinc-400 text-sm">
-                  {isSignUp ? 'Join mova ai to start your journey' : 'Sign in to continue your intelligent journey'}
+                  {isSignUp ? 'Join ' + t('app_name') + ' to start your journey' : 'Sign in to continue your intelligent journey'}
                 </p>
               </div>
 
@@ -420,7 +423,7 @@ export default function App() {
                     <UserIcon className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" size={18} />
                     <input
                       type="text"
-                      placeholder="Full Name"
+                      placeholder={t('display_name')}
                       value={displayName}
                       onChange={(e) => setDisplayName(e.target.value)}
                       className="w-full bg-zinc-900 border border-white/10 rounded-xl py-3 pl-10 pr-4 text-sm focus:outline-none focus:border-white/20 transition-colors"
@@ -433,7 +436,7 @@ export default function App() {
                   <Mail className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" size={18} />
                   <input
                     type="email"
-                    placeholder="Email address"
+                    placeholder={t('email')}
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     className="w-full bg-zinc-900 border border-white/10 rounded-xl py-3 pl-10 pr-4 text-sm focus:outline-none focus:border-white/20 transition-colors"
@@ -445,7 +448,7 @@ export default function App() {
                   <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" size={18} />
                   <input
                     type="password"
-                    placeholder="Password"
+                    placeholder={t('password')}
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     className="w-full bg-zinc-900 border border-white/10 rounded-xl py-3 pl-10 pr-4 text-sm focus:outline-none focus:border-white/20 transition-colors"
@@ -462,7 +465,7 @@ export default function App() {
                   disabled={authLoading}
                   className="w-full bg-zinc-100 text-zinc-900 py-3 rounded-xl font-semibold hover:bg-white transition-all shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {authLoading ? 'Processing...' : (isSignUp ? 'Sign Up' : 'Sign In')}
+                  {authLoading ? t('updating') : (isSignUp ? t('sign_up') : t('sign_in'))}
                 </button>
               </form>
 
@@ -477,11 +480,11 @@ export default function App() {
                 className="w-full flex items-center justify-center gap-3 bg-zinc-900 border border-white/10 text-zinc-100 py-3 rounded-xl font-medium hover:bg-zinc-800 transition-all"
               >
                 <LogIn size={20} />
-                Continue with Google
+                {t('google_sign_in')}
               </button>
 
               <p className="text-sm text-zinc-400">
-                {isSignUp ? 'Already have an account?' : "Don't have an account?"}{' '}
+                {isSignUp ? t('already_have_account') : t('dont_have_account')}{' '}
                 <button 
                   onClick={() => {
                     setIsSignUp(!isSignUp);
@@ -489,7 +492,7 @@ export default function App() {
                   }}
                   className="text-zinc-100 font-semibold hover:underline"
                 >
-                  {isSignUp ? 'Sign In' : 'Sign Up'}
+                  {isSignUp ? t('sign_in') : t('sign_up')}
                 </button>
               </p>
             </>
@@ -567,7 +570,7 @@ export default function App() {
             <div className="w-8 h-8 bg-zinc-100 rounded-lg flex items-center justify-center text-zinc-900">
               <Zap size={18} />
             </div>
-            <h1 className="font-semibold text-sm tracking-tight text-zinc-100">mova ai</h1>
+            <h1 className="font-semibold text-sm tracking-tight text-zinc-100">{t('app_name')}</h1>
           </div>
           <button 
             onClick={() => setIsSidebarOpen(false)}
@@ -583,11 +586,11 @@ export default function App() {
             className="w-full flex items-center gap-3 p-2.5 rounded-lg transition-all text-sm text-zinc-100 bg-zinc-800 hover:bg-zinc-700 font-medium mb-4"
           >
             <Plus size={16} />
-            <span>New Chat</span>
+            <span>{t('new_chat')}</span>
           </button>
           
           <div className="py-2 px-3">
-            <span className="text-[10px] font-bold text-zinc-600 uppercase tracking-widest">History</span>
+            <span className="text-[10px] font-bold text-zinc-600 uppercase tracking-widest">{t('chat_history')}</span>
           </div>
           
           <div className="space-y-1">
@@ -628,7 +631,7 @@ export default function App() {
             className="w-full flex items-center gap-3 p-2.5 rounded-lg text-zinc-400 hover:bg-zinc-800 hover:text-white transition-colors text-sm"
           >
             <LogOut size={16} />
-            <span>Sign Out</span>
+            <span>{t('sign_out')}</span>
           </button>
           <button 
             onClick={() => {
@@ -638,7 +641,7 @@ export default function App() {
             className="w-full flex items-center gap-3 p-2.5 rounded-lg text-zinc-400 hover:bg-zinc-800 hover:text-white transition-colors text-sm"
           >
             <Settings size={16} />
-            <span>Settings</span>
+            <span>{t('settings')}</span>
           </button>
         </div>
       </motion.aside>
@@ -661,7 +664,7 @@ export default function App() {
               className="relative w-full max-w-md bg-zinc-900 border border-white/10 rounded-3xl p-8 shadow-2xl"
             >
               <div className="flex items-center justify-between mb-6">
-                <h2 className="text-xl font-bold text-zinc-100">Settings</h2>
+                <h2 className="text-xl font-bold text-zinc-100">{t('settings')}</h2>
                 <button 
                   onClick={() => setIsSettingsOpen(false)}
                   className="p-2 hover:bg-zinc-800 rounded-full transition-colors text-zinc-500"
@@ -672,19 +675,34 @@ export default function App() {
 
               <form onSubmit={handleUpdateName} className="space-y-6">
                 <div className="space-y-2">
-                  <label className="text-xs font-bold text-zinc-500 uppercase tracking-widest">Display Name</label>
+                  <label className="text-xs font-bold text-zinc-500 uppercase tracking-widest">{t('display_name')}</label>
                   <div className="relative">
                     <UserIcon className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" size={18} />
                     <input
                       type="text"
-                      placeholder="Enter your name"
+                      placeholder={t('display_name')}
                       value={newDisplayName}
                       onChange={(e) => setNewDisplayName(e.target.value)}
                       className="w-full bg-zinc-950 border border-white/10 rounded-xl py-3 pl-10 pr-4 text-sm text-zinc-100 focus:outline-none focus:border-white/20 transition-colors"
                       required
                     />
                   </div>
-                  <p className="text-[10px] text-zinc-500">This name will be used to personalize your experience.</p>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-zinc-500 uppercase tracking-widest">{t('language')}</label>
+                  <div className="relative">
+                    <Globe className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" size={18} />
+                    <select
+                      value={i18n.language}
+                      onChange={(e) => i18n.changeLanguage(e.target.value)}
+                      className="w-full bg-zinc-950 border border-white/10 rounded-xl py-3 pl-10 pr-4 text-sm text-zinc-100 focus:outline-none focus:border-white/20 transition-colors appearance-none"
+                    >
+                      <option value="en">English</option>
+                      <option value="es">Español</option>
+                      <option value="fr">Français</option>
+                    </select>
+                  </div>
                 </div>
 
                 <div className="pt-4 flex gap-3">
@@ -693,20 +711,20 @@ export default function App() {
                     onClick={() => setIsSettingsOpen(false)}
                     className="flex-1 px-4 py-3 rounded-xl text-sm font-semibold text-zinc-400 hover:bg-zinc-800 transition-colors"
                   >
-                    Cancel
+                    {t('cancel')}
                   </button>
                   <button
                     type="submit"
                     disabled={isUpdatingName || !newDisplayName.trim()}
                     className="flex-1 bg-zinc-100 text-zinc-900 px-4 py-3 rounded-xl text-sm font-semibold hover:bg-white transition-all shadow-lg disabled:opacity-50"
                   >
-                    {isUpdatingName ? 'Saving...' : 'Save Changes'}
+                    {isUpdatingName ? t('updating') : t('update_name')}
                   </button>
                 </div>
               </form>
 
               <div className="mt-8 pt-6 border-t border-white/5 space-y-4">
-                <label className="text-xs font-bold text-zinc-500 uppercase tracking-widest">Chat Export</label>
+                <label className="text-xs font-bold text-zinc-600 uppercase tracking-widest">{t('chat_history')}</label>
                 <div className="grid grid-cols-1 gap-2">
                   <button
                     onClick={() => exportChatHistory('json')}
@@ -739,7 +757,7 @@ export default function App() {
                   >
                     <div className="flex items-center gap-3">
                       <Copy size={16} className="text-zinc-500 group-hover:text-zinc-300" />
-                      <span>Copy to Clipboard</span>
+                      <span>{t('copy')}</span>
                     </div>
                   </button>
                 </div>
@@ -761,13 +779,13 @@ export default function App() {
           </button>
           
           <div className="flex items-center gap-1.5 lg:hidden text-zinc-100">
-            <span className="font-semibold text-sm">mova ai</span>
+            <span className="font-semibold text-sm">{t('app_name')}</span>
           </div>
 
           <div className="flex items-center gap-2">
             <div className="hidden lg:flex items-center gap-2 px-3 py-1.5 rounded-full bg-zinc-900 border border-white/5 text-[10px] font-medium text-zinc-400 uppercase tracking-wider">
               <span className="w-1.5 h-1.5 bg-brand-accent rounded-full" />
-              System Online
+              {t('system_online')}
             </div>
           </div>
         </header>
@@ -783,7 +801,7 @@ export default function App() {
             </div>
           ) : (
             <div className="h-full flex items-center justify-center text-zinc-500">
-              Select or start a new chat
+              {t('select_chat')}
             </div>
           )}
         </div>
