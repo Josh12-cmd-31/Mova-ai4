@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { useTranslation, Trans } from 'react-i18next';
 import { motion, AnimatePresence } from 'motion/react';
-import { useTranslation } from 'react-i18next';
 import { 
   Send, 
   Image as ImageIcon, 
@@ -43,11 +43,13 @@ import {
   Globe
 } from 'lucide-react';
 import { chatWithGemini, analyzeFile, editImage, generateImage, GeminiError, ImageOptions } from '../services/gemini';
+import { OrchestrationService, OrchestrationConfig } from '../services/orchestrationService';
 import { Message, SessionFile } from '../types';
-import { db, handleFirestoreError, OperationType } from '../services/firebase';
-import { getDoc, doc } from 'firebase/firestore';
+import { db, handleFirestoreError, OperationType, auth } from '../services/firebase';
+import { getDoc, doc, collection, query, where, onSnapshot } from 'firebase/firestore';
 
 function FileImage({ fileId, alt, className, onLoad }: { fileId: string; alt: string; className?: string; onLoad?: (dataUrl: string) => void }) {
+  const { t } = useTranslation();
   const [dataUrl, setDataUrl] = useState<string | null>(null);
   const [error, setError] = useState(false);
 
@@ -65,20 +67,21 @@ function FileImage({ fileId, alt, className, onLoad }: { fileId: string; alt: st
           setError(true);
         }
       } catch (err) {
-        console.error("Error loading file:", err);
+        console.error(t('error_loading_file_console'), err);
         setError(true);
       }
     };
     loadFile();
   }, [fileId]);
 
-  if (error) return <div className="flex items-center justify-center bg-zinc-800 rounded-lg aspect-square text-white/30 text-xs">Failed to load</div>;
+  if (error) return <div className="flex items-center justify-center bg-zinc-800 rounded-lg aspect-square text-white/30 text-xs">{t('error_occurred')}</div>;
   if (!dataUrl) return <div className="flex items-center justify-center bg-zinc-800 rounded-lg aspect-square"><Loader2 className="w-4 h-4 animate-spin text-white/30" /></div>;
 
   return <img src={dataUrl} alt={alt} className={className} referrerPolicy="no-referrer" />;
 }
 
 function FileComparison({ before, after, beforeId, afterId, onMaximize }: { before?: string; after?: string; beforeId?: string; afterId?: string; onMaximize?: (url: string) => void }) {
+  const { t } = useTranslation();
   const [sliderPos, setSliderPos] = useState(50);
   const containerRef = useRef<HTMLDivElement>(null);
   const [beforeUrl, setBeforeUrl] = useState<string | null>(before || null);
@@ -116,20 +119,20 @@ function FileComparison({ before, after, beforeId, afterId, onMaximize }: { befo
     setSliderPos(Math.min(Math.max(position, 0), 100));
   };
 
-  if (!beforeUrl || !afterUrl) return <div className="flex items-center justify-center bg-zinc-900 rounded-xl aspect-square max-h-80 border border-white/5"><Loader2 className="w-6 h-6 animate-spin text-white/30" /></div>;
+  if (!beforeUrl || !afterUrl) return <div className="flex items-center justify-center bg-zinc-900 rounded-2xl w-full aspect-video max-h-[600px] border border-white/5"><Loader2 className="w-6 h-6 animate-spin text-white/30" /></div>;
 
   return (
     <div 
       ref={containerRef}
-      className="relative w-full aspect-square max-h-80 rounded-xl overflow-hidden cursor-ew-resize select-none bg-zinc-900 border border-white/5 group"
+      className="relative w-full h-auto max-h-[800px] rounded-2xl overflow-hidden cursor-ew-resize select-none bg-zinc-950 border border-white/10 group shadow-2xl"
       onMouseMove={handleMove}
       onTouchMove={handleMove}
     >
-      <img src={afterUrl} alt="After" className="absolute inset-0 w-full h-full object-contain pointer-events-none" />
+      <img src={afterUrl} alt={t('after')} className="w-full h-auto block pointer-events-none" />
       <img 
         src={beforeUrl} 
-        alt="Before" 
-        className="absolute inset-0 w-full h-full object-contain pointer-events-none" 
+        alt={t('before')} 
+        className="absolute inset-0 w-full h-full object-cover pointer-events-none" 
         style={{ clipPath: `inset(0 ${100 - sliderPos}% 0 0)` }}
       />
       <div 
@@ -143,8 +146,8 @@ function FileComparison({ before, after, beforeId, afterId, onMaximize }: { befo
           </div>
         </div>
       </div>
-      <div className="absolute bottom-2 left-2 px-2 py-1 bg-black/40 backdrop-blur-md rounded text-[8px] font-bold uppercase tracking-widest text-white/70 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity">Original</div>
-      <div className="absolute bottom-2 right-2 px-2 py-1 bg-black/40 backdrop-blur-md rounded text-[8px] font-bold uppercase tracking-widest text-white/70 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity">Edited</div>
+      <div className="absolute bottom-2 left-2 px-2 py-1 bg-black/40 backdrop-blur-md rounded text-[8px] font-bold uppercase tracking-widest text-white/70 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity">{t('original')}</div>
+      <div className="absolute bottom-2 right-2 px-2 py-1 bg-black/40 backdrop-blur-md rounded text-[8px] font-bold uppercase tracking-widest text-white/70 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity">{t('edited')}</div>
       {onMaximize && (
         <button 
           onClick={(e) => {
@@ -152,7 +155,7 @@ function FileComparison({ before, after, beforeId, afterId, onMaximize }: { befo
             onMaximize(afterUrl!);
           }}
           className="absolute bottom-3 right-3 p-2 bg-black/50 hover:bg-black/70 rounded-lg text-white backdrop-blur-sm transition-all opacity-0 group-hover:opacity-100"
-          title="Maximize"
+          title={t('maximize')}
         >
           <Maximize2 size={16} />
         </button>
@@ -163,48 +166,49 @@ function FileComparison({ before, after, beforeId, afterId, onMaximize }: { befo
 
 const IMAGE_PROMPTS: Record<string, string[]> = {
   'gemini-3-pro-image-preview': [
-    "A hyper-realistic close-up of a dragon's eye with intricate scales and fiery reflections",
-    "A futuristic city with neon lights and flying cars, cinematic lighting, 8k resolution",
-    "A serene landscape with a crystal clear lake and snow-capped mountains, National Geographic style",
-    "A detailed steampunk airship sailing through a sunset sky with golden hour lighting"
+    'prompt_dragon_eye',
+    'prompt_futuristic_city',
+    'prompt_serene_landscape',
+    'prompt_steampunk_airship'
   ],
   'gemini-3.1-flash-image-preview': [
-    "A cute robot painting a masterpiece on a canvas in a sunlit studio",
-    "A cyberpunk cat wearing high-tech goggles on a rainy Tokyo street",
-    "A magical forest with glowing plants and floating islands, ethereal atmosphere",
-    "A minimalist portrait of a woman with flowers in her hair, soft pastel colors"
+    'prompt_cute_robot',
+    'prompt_cyberpunk_cat',
+    'prompt_magical_forest',
+    'prompt_minimalist_portrait'
   ],
   'gemini-2.5-flash-image': [
-    "A simple sketch of a futuristic car concept",
-    "A vibrant abstract painting with bold brushstrokes and primary colors",
-    "A 3D render of a glass sphere floating over a desert landscape",
-    "A whimsical illustration of a house made of candy"
+    'prompt_futuristic_car',
+    'prompt_abstract_painting',
+    'prompt_glass_sphere',
+    'prompt_candy_house'
   ],
   'imagen-4.0-generate-001': [
-    "A photorealistic portrait of an elderly man with deep wrinkles and kind eyes",
-    "An oil painting of a stormy sea in the style of William Turner",
-    "A macro photograph of a dewdrop on a leaf, reflecting the entire forest",
-    "A surrealist landscape where the sky is made of clockwork gears"
+    'prompt_elderly_man',
+    'prompt_stormy_sea',
+    'prompt_macro_dewdrop',
+    'prompt_surrealist_landscape'
   ],
   'default': [
-    "A futuristic city with neon lights and flying cars",
-    "A cute robot painting a masterpiece on a canvas",
-    "A serene landscape with a crystal clear lake and snow-capped mountains",
-    "A cyberpunk cat wearing high-tech goggles",
-    "A magical forest with glowing plants and floating islands",
-    "A steampunk airship sailing through a sunset sky",
-    "A minimalist portrait of a woman with flowers in her hair",
-    "A hyper-realistic close-up of a dragon's eye"
+    'prompt_futuristic_city',
+    'prompt_cute_robot',
+    'prompt_serene_landscape',
+    'prompt_cyberpunk_cat',
+    'prompt_magical_forest',
+    'prompt_steampunk_airship',
+    'prompt_minimalist_portrait',
+    'prompt_dragon_eye'
   ]
 };
 
 interface ChatInterfaceProps {
   initialMessages: Message[];
   onUpdateMessages: (messages: Message[]) => void;
+  onOpenOrchestrationSettings?: () => void;
 }
 
-export default function ChatInterface({ initialMessages, onUpdateMessages }: ChatInterfaceProps): React.JSX.Element {
-  const { t } = useTranslation();
+export default function ChatInterface({ initialMessages, onUpdateMessages, onOpenOrchestrationSettings }: ChatInterfaceProps): React.JSX.Element {
+  const { t, i18n } = useTranslation();
   const [messages, setMessages] = useState<Message[]>(initialMessages);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -220,11 +224,11 @@ export default function ChatInterface({ initialMessages, onUpdateMessages }: Cha
     try {
       if (navigator.share) {
         const blob = await (await fetch(dataUrl)).blob();
-        const file = new File([blob], 'mova-ai-image.png', { type: blob.type });
+        const file = new File([blob], `${t('app_name').toLowerCase().replace(/\s+/g, '-')}-image.png`, { type: blob.type });
         await navigator.share({
           files: [file],
-          title: 'Shared from Mova AI',
-          text: 'Check out this image I generated with Mova AI!'
+          title: t('share_title'),
+          text: t('share_text')
         });
       } else {
         const blob = await (await fetch(dataUrl)).blob();
@@ -232,10 +236,10 @@ export default function ChatInterface({ initialMessages, onUpdateMessages }: Cha
           new ClipboardItem({ [blob.type]: blob })
         ]);
         // No alert, just log or let the user see it's copied if we had a toast
-        console.log('Image copied to clipboard');
+        console.log(t('image_copied'));
       }
     } catch (err) {
-      console.error('Error sharing:', err);
+      console.error(t('error_sharing'), err);
     }
   };
 
@@ -254,7 +258,7 @@ export default function ChatInterface({ initialMessages, onUpdateMessages }: Cha
         document.body.removeChild(link);
       }
     } catch (err) {
-      console.error('Error downloading file:', err);
+      console.error(t('download_failed_console'), err);
     }
   };
   const [selectedChatModel, setSelectedChatModel] = useState('gemini-3.1-pro-preview');
@@ -273,6 +277,8 @@ export default function ChatInterface({ initialMessages, onUpdateMessages }: Cha
   const [speakingMsgId, setSpeakingMsgId] = useState<string | null>(null);
   const [isRecording, setIsRecording] = useState(false);
   const [isKeyRequired, setIsKeyRequired] = useState(false);
+  const [orchestrationConfigs, setOrchestrationConfigs] = useState<OrchestrationConfig[]>([]);
+  const [selectedOrchestrationConfig, setSelectedOrchestrationConfig] = useState<OrchestrationConfig | null>(null);
   const recognitionRef = useRef<any>(null);
   
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -315,6 +321,15 @@ export default function ChatInterface({ initialMessages, onUpdateMessages }: Cha
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
+      // Check file size (max 10MB for images, 1MB for others)
+      const isImage = file.type.startsWith('image/');
+      const maxSize = isImage ? 10 * 1024 * 1024 : 1024 * 1024;
+      
+      if (file.size > maxSize) {
+        alert(isImage ? t('image_too_large') : t('file_too_large'));
+        return;
+      }
+
       const reader = new FileReader();
       reader.onloadend = () => {
         const base64String = (reader.result as string).split(',')[1];
@@ -382,7 +397,16 @@ export default function ChatInterface({ initialMessages, onUpdateMessages }: Cha
     }
 
     window.speechSynthesis.cancel();
+    const getLanguageCode = () => {
+      switch (i18n.language) {
+        case 'es': return 'es-ES';
+        case 'fr': return 'fr-FR';
+        default: return 'en-US';
+      }
+    };
+
     const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = getLanguageCode();
     utterance.onend = () => setSpeakingMsgId(null);
     utterance.onerror = () => setSpeakingMsgId(null);
     
@@ -408,14 +432,22 @@ export default function ChatInterface({ initialMessages, onUpdateMessages }: Cha
 
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRecognition) {
-      alert("Speech recognition is not supported in your browser.");
+      alert(t('speech_not_supported'));
       return;
     }
+
+    const getLanguageCode = () => {
+      switch (i18n.language) {
+        case 'es': return 'es-ES';
+        case 'fr': return 'fr-FR';
+        default: return 'en-US';
+      }
+    };
 
     const recognition = new SpeechRecognition();
     recognition.continuous = true;
     recognition.interimResults = true;
-    recognition.lang = 'en-US';
+    recognition.lang = getLanguageCode();
 
     recognition.onstart = () => {
       setIsRecording(true);
@@ -439,7 +471,7 @@ export default function ChatInterface({ initialMessages, onUpdateMessages }: Cha
     };
 
     recognition.onerror = (event: any) => {
-      console.error('Speech recognition error', event.error);
+      console.error(t('speech_error_console'), event.error);
       setIsRecording(false);
     };
 
@@ -451,6 +483,30 @@ export default function ChatInterface({ initialMessages, onUpdateMessages }: Cha
     recognition.start();
   };
 
+  useEffect(() => {
+    if (!auth.currentUser) return;
+
+    const q = query(
+      collection(db, 'orchestration_configs'),
+      where('userId', '==', auth.currentUser.uid)
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const configs = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as OrchestrationConfig[];
+      setOrchestrationConfigs(configs);
+      
+      const defaultConfig = configs.find(c => c.isDefault) || configs[0] || null;
+      if (defaultConfig && !selectedOrchestrationConfig) {
+        setSelectedOrchestrationConfig(defaultConfig);
+      }
+    });
+
+    return () => unsubscribe();
+  }, [auth.currentUser]);
+
   const executeRequest = async (text: string, file: string | null, mime: string) => {
     setIsLoading(true);
 
@@ -461,15 +517,15 @@ export default function ChatInterface({ initialMessages, onUpdateMessages }: Cha
       if (file) {
         if (isEditingMode && mime.startsWith('image/')) {
           try {
-            const result = await editImage(file, text || "Enhance this image", selectedImageModel);
+            const result = await editImage(file, text || t('default_edit_prompt'), selectedImageModel);
             if (!result || !result.editedImageB64) {
-              throw new GeminiError("The model was unable to generate an edited version of this image. This can happen if the prompt is too complex or if the image content is restricted.", "IMAGE_EDIT_FAILED");
+              throw new GeminiError(t('image_edit_failed_desc'), "IMAGE_EDIT_FAILED");
             }
-            responseText = result.textResponse || "I've processed your image edit request.";
+            responseText = result.textResponse || t('image_edit_processed');
             editedFile = result.editedImageB64;
           } catch (err: any) {
-            console.error("Image edit error:", err);
-            throw err instanceof GeminiError ? err : new GeminiError("Failed to edit image. The model might be busy or the request was blocked.", "IMAGE_EDIT_ERROR");
+            console.error(t('request_execution_error'), err);
+            throw err instanceof GeminiError ? err : new GeminiError(t('image_edit_error_desc'), "IMAGE_EDIT_ERROR");
           }
         } else {
           responseText = await analyzeFile(file, text, mime);
@@ -483,28 +539,40 @@ export default function ChatInterface({ initialMessages, onUpdateMessages }: Cha
             style: selectedStyle || undefined,
             useSearch: useSearch && (selectedImageModel === 'gemini-3-pro-image-preview' || selectedImageModel === 'gemini-3.1-flash-image-preview')
           };
-          const result = await generateImage(text, selectedImageModel, options);
+          const result = await generateImage(text || t('default_gen_prompt'), selectedImageModel, options);
           if (!result || !result.generatedImageB64) {
-            throw new GeminiError("I couldn't generate an image for that prompt. It might have been blocked by safety filters or the model is currently unavailable.", "IMAGE_GEN_FAILED");
+            throw new GeminiError(t('image_gen_error_desc'), "IMAGE_GEN_FAILED");
           }
-          responseText = result.textResponse || "I've generated an image for you.";
+          responseText = result.textResponse || t('image_gen_processed');
           editedFile = result.generatedImageB64;
         } catch (err: any) {
-          console.error("Image generation error:", err);
-          throw err instanceof GeminiError ? err : new GeminiError("Failed to generate image. Please try a different prompt or check your connection.", "IMAGE_GEN_ERROR");
+          console.error(t('request_execution_error'), err);
+          throw err instanceof GeminiError ? err : new GeminiError(t('image_gen_error_desc'), "IMAGE_GEN_ERROR");
         }
       } else if (isOrchestrationMode) {
-        const response = await fetch('/api/orchestrate', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ prompt: text })
-        });
-        if (!response.ok) {
-          const errorData = await response.json();
-          throw new Error(errorData.error || "Orchestration failed");
+        const apiKey = process.env.GEMINI_API_KEY || (window as any).process?.env?.API_KEY;
+        if (!apiKey) {
+          throw new GeminiError(t('gemini_api_key_not_set'), "API_KEY_MISSING");
         }
-        const data = await response.json();
-        responseText = data.finalResult;
+
+        const orchestrationService = new OrchestrationService(apiKey);
+        
+        // Use custom config if available, otherwise use a default one
+        const configToUse: OrchestrationConfig = selectedOrchestrationConfig || {
+          id: 'default',
+          userId: auth.currentUser?.uid || 'anonymous',
+          name: 'Default',
+          isDefault: true,
+          globalContext: `SYSTEM ROLE: You are Mova AI, a coordinated multi-agent system.`,
+          agents: [
+            { id: '1', name: 'Analyzer', responsibilities: 'Analyze request', outputFormat: 'Summary', model: 'gemini-3.1-pro-preview' },
+            { id: '2', name: 'Generator', responsibilities: 'Generate content', outputFormat: 'Draft', model: 'gemini-3.1-pro-preview' },
+            { id: '3', name: 'Verifier', responsibilities: 'Verify content', outputFormat: 'Final', model: 'gemini-3.1-pro-preview' }
+          ]
+        };
+
+        const result = await orchestrationService.runOrchestration(text, configToUse);
+        responseText = result.finalResult;
       } else {
         responseText = await chatWithGemini(text, messages, selectedChatModel);
       }
@@ -514,18 +582,17 @@ export default function ChatInterface({ initialMessages, onUpdateMessages }: Cha
         role: 'assistant',
         content: responseText,
         file: editedFile ? `data:image/png;base64,${editedFile}` : undefined,
+        fileMimeType: editedFile ? 'image/png' : undefined,
         beforeFile: (isEditingMode && file) ? `data:${mime};base64,${file}` : undefined
       };
 
       setMessages(prev => [...prev, assistantMessage]);
       
-      if (editedFile) {
-        setSelectedFile(editedFile);
-        setFileMimeType('image/png');
-      }
+      // Don't automatically select the generated/edited file for the next request
+      // to avoid cluttering the input area as requested by the user.
     } catch (error: any) {
-      console.error("Request execution error:", error);
-      let errorMessage = "I encountered an unexpected error processing your request.";
+      console.error(t('request_execution_error'), error);
+      let errorMessage = t('unexpected_error');
       let errorCode = "UNKNOWN_ERROR";
 
       if (error instanceof GeminiError) {
@@ -535,9 +602,9 @@ export default function ChatInterface({ initialMessages, onUpdateMessages }: Cha
         // Specific feedback for safety blocks in image context
         if (errorCode === "SAFETY_ERROR" || errorMessage.toLowerCase().includes("safety") || errorMessage.toLowerCase().includes("blocked")) {
           if (isGenerationMode) {
-            errorMessage = "Your image generation prompt was blocked by safety filters. Please try a more neutral description.";
+            errorMessage = t('safety_block_gen');
           } else if (isEditingMode) {
-            errorMessage = "The image edit request was blocked by safety filters. This could be due to the original image content or your edit instructions.";
+            errorMessage = t('safety_block_edit');
           }
         }
       } else if (error.message) {
@@ -575,10 +642,10 @@ export default function ChatInterface({ initialMessages, onUpdateMessages }: Cha
   const currentPrompts = IMAGE_PROMPTS[selectedImageModel] || IMAGE_PROMPTS.default;
 
   const IMAGE_MODELS = [
-    { id: 'gemini-3-pro-image-preview', name: 'Pro Image', desc: 'Highest detail & quality', tag: 'Best', strength: 'High-quality image generation for professional use' },
-    { id: 'gemini-3.1-flash-image-preview', name: 'Flash HQ', desc: 'High quality & flexible', tag: 'HQ', strength: 'Great balance of speed and high-resolution detail' },
-    { id: 'gemini-2.5-flash-image', name: 'Flash Image', desc: 'Fast generation', tag: 'Fast', strength: 'Rapid generation for quick concepts and ideation' },
-    { id: 'imagen-4.0-generate-001', name: 'Imagen 4', desc: 'Photorealistic results', tag: 'New', strength: 'Advanced photorealism and artistic texture control' }
+    { id: 'gemini-3-pro-image-preview', name: t('pro_image'), desc: t('highest_detail_quality'), tag: t('best'), strength: t('pro_image_strength') },
+    { id: 'gemini-3.1-flash-image-preview', name: t('flash_hq'), desc: t('high_quality_flexible'), tag: t('hq'), strength: t('flash_hq_strength') },
+    { id: 'gemini-2.5-flash-image', name: t('flash_image'), desc: t('fast_generation'), tag: t('fast'), strength: t('flash_image_strength') },
+    { id: 'imagen-4.0-generate-001', name: t('imagen_4'), desc: t('photorealistic_results'), tag: t('new'), strength: t('imagen_4_strength') }
   ];
 
   const activeImageModel = IMAGE_MODELS.find(m => m.id === selectedImageModel) || IMAGE_MODELS[2];
@@ -602,9 +669,13 @@ export default function ChatInterface({ initialMessages, onUpdateMessages }: Cha
                 <Cpu size={32} className="text-emerald-500" />
               </div>
               <div className="space-y-2">
-                <h2 className="text-xl font-bold text-white">Advanced Model Access</h2>
+                <h2 className="text-xl font-bold text-white">{t('advanced_model_access')}</h2>
                 <p className="text-sm text-zinc-400 leading-relaxed">
-                  To use <span className="text-zinc-100 font-semibold">{selectedImageModel.split('-').map(s => s.charAt(0).toUpperCase() + s.slice(1)).join(' ')}</span>, you must select your own API key.
+                  <Trans 
+                    i18nKey="api_key_selection_desc" 
+                    values={{ modelName: activeImageModel.name }}
+                    components={{ span: <span className="text-zinc-100 font-semibold" /> }}
+                  />
                 </p>
               </div>
               <div className="space-y-4">
@@ -612,10 +683,15 @@ export default function ChatInterface({ initialMessages, onUpdateMessages }: Cha
                   onClick={handleSelectKey}
                   className="w-full py-3 bg-zinc-100 hover:bg-white text-zinc-900 rounded-xl font-bold transition-all shadow-lg"
                 >
-                  Select API Key
+                  {t('select_api_key')}
                 </button>
                 <p className="text-[10px] text-zinc-500">
-                  A paid Google Cloud project is required. See the <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" rel="noopener noreferrer" className="underline hover:text-zinc-300">billing documentation</a> for details.
+                  <Trans 
+                    i18nKey="paid_project_required" 
+                    components={{ 
+                      billingLink: <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" rel="noopener noreferrer" className="underline hover:text-zinc-300" /> 
+                    }} 
+                  />
                 </p>
                 <button
                   onClick={() => {
@@ -624,7 +700,7 @@ export default function ChatInterface({ initialMessages, onUpdateMessages }: Cha
                   }}
                   className="text-[11px] font-bold uppercase tracking-widest text-zinc-500 hover:text-zinc-300 transition-colors"
                 >
-                  Switch to Standard Model
+                  {t('switch_to_standard')}
                 </button>
               </div>
             </motion.div>
@@ -701,7 +777,7 @@ export default function ChatInterface({ initialMessages, onUpdateMessages }: Cha
         ref={scrollRef}
         className="flex-1 overflow-y-auto scrollbar-hide"
       >
-        <div className="max-w-3xl mx-auto px-4 py-8 space-y-8">
+        <div className="max-w-5xl mx-auto px-4 py-8 space-y-8">
           <AnimatePresence initial={false}>
             {messages.map((msg) => (
               <motion.div
@@ -717,7 +793,7 @@ export default function ChatInterface({ initialMessages, onUpdateMessages }: Cha
                     {msg.role === 'user' ? <User size={16} className="text-zinc-400" /> : <Bot size={16} className="text-zinc-400" />}
                   </div>
                   <div className={`flex-1 min-w-0 ${msg.role === 'user' ? 'flex flex-col items-end' : ''}`}>
-                    <div className={`max-w-[90%] md:max-w-[85%] ${
+                    <div className={`${msg.role === 'user' ? 'max-w-[90%] md:max-w-[85%]' : 'max-w-full'} ${
                       msg.role === 'user' 
                         ? 'bg-zinc-800 p-3 rounded-2xl text-zinc-100' 
                         : 'text-zinc-100'
@@ -726,7 +802,7 @@ export default function ChatInterface({ initialMessages, onUpdateMessages }: Cha
                         <div className="flex flex-col gap-3">
                           <div className="flex items-center gap-2 text-red-600 font-bold text-[10px] uppercase tracking-wider">
                             <AlertCircle size={12} />
-                            System Error: {msg.errorCode}
+                            {t('system_error_code', { code: msg.errorCode })}
                           </div>
                           <div className="prose prose-sm max-w-none prose-zinc leading-relaxed text-red-400/80">
                             {msg.content.split('\n').map((line, i) => (
@@ -739,7 +815,7 @@ export default function ChatInterface({ initialMessages, onUpdateMessages }: Cha
                             className="flex items-center gap-2 self-start px-3 py-1.5 bg-red-950/30 border border-red-900/50 rounded-lg text-[10px] font-bold uppercase tracking-wider text-red-400 hover:bg-red-900/40 transition-all disabled:opacity-50"
                           >
                             <RefreshCcw size={12} className={isLoading ? "animate-spin" : ""} />
-                            Retry Request
+                            {t('retry')}
                           </button>
                         </div>
                       ) : (
@@ -760,17 +836,17 @@ export default function ChatInterface({ initialMessages, onUpdateMessages }: Cha
                                     <div className="relative group">
                                       <FileImage 
                                         fileId={msg.fileId} 
-                                        alt="Stored content" 
-                                        className="rounded-xl max-h-80 object-contain bg-zinc-900 border border-white/5 shadow-sm transition-transform group-hover:scale-[1.01]"
+                                        alt={t('stored_content')} 
+                                        className="rounded-2xl w-full h-auto max-h-[800px] object-contain bg-zinc-950 border border-white/10 shadow-2xl transition-all group-hover:scale-[1.005]"
                                       />
                                       <div className="absolute top-2 right-2 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                                         <button
                                           onClick={(e) => {
                                             e.stopPropagation();
-                                            handleDownload(msg.fileId!, msg.fileName || 'image.png');
+                                            handleDownload(msg.fileId!, msg.fileName || t('image_filename'));
                                           }}
                                           className="p-2 bg-black/50 hover:bg-black/70 rounded-lg text-white backdrop-blur-sm transition-colors"
-                                          title="Download"
+                                          title={t('download')}
                                         >
                                           <Download size={14} />
                                         </button>
@@ -785,7 +861,7 @@ export default function ChatInterface({ initialMessages, onUpdateMessages }: Cha
                                             }
                                           }}
                                           className="p-2 bg-black/50 hover:bg-black/70 rounded-lg text-white backdrop-blur-sm transition-colors"
-                                          title="Share"
+                                          title={t('share')}
                                         >
                                           <Share2 size={14} />
                                         </button>
@@ -799,17 +875,17 @@ export default function ChatInterface({ initialMessages, onUpdateMessages }: Cha
                                       <div className="relative group">
                                         <img 
                                           src={msg.file} 
-                                          alt="Uploaded content" 
-                                          className="rounded-xl max-h-80 object-contain bg-zinc-900 border border-white/5 shadow-sm transition-transform group-hover:scale-[1.01]"
+                                          alt={t('uploaded_content')} 
+                                          className="rounded-2xl w-full h-auto max-h-[800px] object-contain bg-zinc-950 border border-white/10 shadow-2xl transition-all group-hover:scale-[1.005]"
                                           referrerPolicy="no-referrer"
                                         />
                                         <div className="absolute top-2 right-2 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                                           <a
                                             href={msg.file}
-                                            download={msg.fileName || 'image.png'}
+                                            download={msg.fileName || t('image_filename')}
                                             onClick={(e) => e.stopPropagation()}
                                             className="p-2 bg-black/50 hover:bg-black/70 rounded-lg text-white backdrop-blur-sm transition-colors"
-                                            title="Download"
+                                            title={t('download')}
                                           >
                                             <Download size={14} />
                                           </a>
@@ -819,7 +895,7 @@ export default function ChatInterface({ initialMessages, onUpdateMessages }: Cha
                                               handleShare(msg.file!);
                                             }}
                                             className="p-2 bg-black/50 hover:bg-black/70 rounded-lg text-white backdrop-blur-sm transition-colors"
-                                            title="Share"
+                                            title={t('share')}
                                           >
                                             <Share2 size={14} />
                                           </button>
@@ -834,12 +910,12 @@ export default function ChatInterface({ initialMessages, onUpdateMessages }: Cha
                                           {getFileIcon(msg.fileMimeType || '')}
                                         </div>
                                         <div className="flex-1 min-w-0">
-                                          <div className="text-xs font-bold text-zinc-100 truncate">{msg.fileName || 'Uploaded File'}</div>
-                                          <div className="text-[10px] text-zinc-500 uppercase tracking-wider">{msg.fileMimeType?.split('/')[1] || 'File'}</div>
+                                          <div className="text-xs font-bold text-zinc-100 truncate">{msg.fileName || t('uploaded_file')}</div>
+                                          <div className="text-[10px] text-zinc-500 uppercase tracking-wider">{msg.fileMimeType?.split('/')[1] || t('file')}</div>
                                         </div>
                                         <a 
                                           href={msg.file} 
-                                          download={msg.fileName || 'file'}
+                                          download={msg.fileName || t('file')}
                                           onClick={(e) => e.stopPropagation()}
                                           className="p-2 text-zinc-500 hover:text-white transition-colors"
                                         >
@@ -864,7 +940,7 @@ export default function ChatInterface({ initialMessages, onUpdateMessages }: Cha
                                         ? 'bg-zinc-100 text-zinc-900' 
                                         : 'text-zinc-500 hover:text-zinc-300'
                                     }`}
-                                    title={speakingMsgId === msg.id ? "Stop Speaking" : "Read Aloud"}
+                                    title={speakingMsgId === msg.id ? t('stop_speaking') : t('read_aloud')}
                                   >
                                     {speakingMsgId === msg.id ? <VolumeX size={12} /> : <Volume2 size={12} />}
                                   </button>
@@ -898,7 +974,7 @@ export default function ChatInterface({ initialMessages, onUpdateMessages }: Cha
       </div>
 
       {/* Input Area */}
-      <div className="max-w-3xl w-full mx-auto px-4 pb-6 pt-2">
+      <div className="max-w-5xl w-full mx-auto px-4 pb-6 pt-2">
         <div className="relative">
           {/* Unified Model & Tools Menu */}
       <AnimatePresence>
@@ -912,7 +988,7 @@ export default function ChatInterface({ initialMessages, onUpdateMessages }: Cha
             <div className="p-4 border-b border-white/5 flex items-center justify-between bg-zinc-950/80 backdrop-blur-md">
               <div className="flex items-center gap-3">
                 <ImageIcon size={18} className="text-zinc-400" />
-                <h2 className="text-sm font-bold uppercase tracking-widest text-zinc-100">Image Gallery</h2>
+                <h2 className="text-sm font-bold uppercase tracking-widest text-zinc-100">{t('image_gallery')}</h2>
               </div>
               <button 
                 onClick={() => setIsGalleryOpen(false)}
@@ -926,7 +1002,7 @@ export default function ChatInterface({ initialMessages, onUpdateMessages }: Cha
               {messages.filter(m => m.file || m.fileId).length === 0 ? (
                 <div className="h-full flex flex-col items-center justify-center text-zinc-600 space-y-4">
                   <ImageIcon size={48} strokeWidth={1} />
-                  <p className="text-xs font-medium">No images in this session yet</p>
+                  <p className="text-xs font-medium">{t('no_images_yet')}</p>
                 </div>
               ) : (
                 <div className="grid grid-cols-2 gap-3">
@@ -942,13 +1018,13 @@ export default function ChatInterface({ initialMessages, onUpdateMessages }: Cha
                       {msg.fileId ? (
                         <FileImage 
                           fileId={msg.fileId} 
-                          alt="Gallery item" 
+                          alt={t('gallery_item')} 
                           className="w-full h-full object-cover transition-transform group-hover:scale-110"
                         />
                       ) : (
                         <img 
                           src={msg.file} 
-                          alt="Gallery item" 
+                          alt={t('gallery_item')} 
                           className="w-full h-full object-cover transition-transform group-hover:scale-110"
                           referrerPolicy="no-referrer"
                         />
@@ -960,16 +1036,16 @@ export default function ChatInterface({ initialMessages, onUpdateMessages }: Cha
                             onClick={(e) => {
                               e.stopPropagation();
                               if (msg.fileId) {
-                                handleDownload(msg.fileId, msg.fileName || 'image.png');
+                                handleDownload(msg.fileId, msg.fileName || t('image_filename'));
                               } else if (msg.file) {
                                 const link = document.createElement('a');
                                 link.href = msg.file;
-                                link.download = msg.fileName || 'image.png';
+                                link.download = msg.fileName || t('image_filename');
                                 link.click();
                               }
                             }}
                             className="p-1.5 bg-white/10 hover:bg-white/20 rounded-lg text-white backdrop-blur-md transition-all"
-                            title="Download"
+                            title={t('download')}
                           >
                             <Download size={14} />
                           </button>
@@ -988,7 +1064,7 @@ export default function ChatInterface({ initialMessages, onUpdateMessages }: Cha
                               }
                             }}
                             className="p-1.5 bg-white/10 hover:bg-white/20 rounded-lg text-white backdrop-blur-md transition-all"
-                            title="Share"
+                            title={t('share')}
                           >
                             <Share2 size={14} />
                           </button>
@@ -1018,29 +1094,29 @@ export default function ChatInterface({ initialMessages, onUpdateMessages }: Cha
                   <button 
                     onClick={() => setZoomScale(prev => Math.min(prev + 0.5, 4))}
                     className="p-3 bg-white/10 hover:bg-white/20 rounded-full text-white transition-all backdrop-blur-md"
-                    title="Zoom In"
+                    title={t('zoom_in')}
                   >
                     <ZoomIn size={20} />
                   </button>
                   <button 
                     onClick={() => setZoomScale(prev => Math.max(prev - 0.5, 0.5))}
                     className="p-3 bg-white/10 hover:bg-white/20 rounded-full text-white transition-all backdrop-blur-md"
-                    title="Zoom Out"
+                    title={t('zoom_out')}
                   >
                     <ZoomOut size={20} />
                   </button>
                   <a 
                     href={fullscreenDataUrl || fullscreenImage!} 
-                    download="mova-ai-export.png"
+                    download={`${t('app_name').toLowerCase().replace(/\s+/g, '-')}-export.png`}
                     className="p-3 bg-white/10 hover:bg-white/20 rounded-full text-white transition-all backdrop-blur-md"
-                    title="Download Image"
+                    title={t('download_image')}
                   >
                     <Download size={20} />
                   </a>
                   <button 
                     onClick={() => handleShare(fullscreenDataUrl || fullscreenImage!)}
                     className="p-3 bg-white/10 hover:bg-white/20 rounded-full text-white transition-all backdrop-blur-md"
-                    title="Share Image"
+                    title={t('share_image')}
                   >
                     <Share2 size={20} />
                   </button>
@@ -1067,7 +1143,7 @@ export default function ChatInterface({ initialMessages, onUpdateMessages }: Cha
                 initial={{ scale: 0.9, opacity: 0 }}
                 animate={{ scale: 1, opacity: 1 }}
                 src={fullscreenImage}
-                alt="Fullscreen view"
+                alt={t('fullscreen_view')}
                 className="max-w-full max-h-full object-contain rounded-lg shadow-2xl"
                 referrerPolicy="no-referrer"
               />
@@ -1080,7 +1156,7 @@ export default function ChatInterface({ initialMessages, onUpdateMessages }: Cha
                 {fullscreenImage && (
                   <FileImage 
                     fileId={fullscreenImage} 
-                    alt="Fullscreen view" 
+                    alt={t('fullscreen_view')} 
                     className="max-w-full max-h-full object-contain rounded-lg shadow-2xl"
                     onLoad={setFullscreenDataUrl}
                   />
@@ -1117,7 +1193,7 @@ export default function ChatInterface({ initialMessages, onUpdateMessages }: Cha
                       <div className="w-10 h-10 rounded-lg bg-zinc-700 flex items-center justify-center text-zinc-300 group-hover:text-white transition-colors">
                         <ImageIcon size={20} />
                       </div>
-                      <div className="text-[10px] font-bold text-zinc-100 uppercase tracking-wider">Upload Image</div>
+                      <div className="text-[10px] font-bold text-zinc-100 uppercase tracking-wider">{t('upload_image')}</div>
                     </button>
                     <button
                       onClick={() => {
@@ -1132,7 +1208,7 @@ export default function ChatInterface({ initialMessages, onUpdateMessages }: Cha
                       <div className="w-10 h-10 rounded-lg bg-zinc-700 flex items-center justify-center text-zinc-300 group-hover:text-white transition-colors">
                         <FileText size={20} />
                       </div>
-                      <div className="text-[10px] font-bold text-zinc-100 uppercase tracking-wider">Upload File</div>
+                      <div className="text-[10px] font-bold text-zinc-100 uppercase tracking-wider">{t('upload_file')}</div>
                     </button>
                   </div>
 
@@ -1140,13 +1216,13 @@ export default function ChatInterface({ initialMessages, onUpdateMessages }: Cha
                   <div>
                     <div className="flex items-center gap-2 mb-3 px-1">
                       <Cpu size={14} className="text-zinc-500" />
-                      <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">Intelligence Engine</span>
+                      <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">{t('intelligence_engine')}</span>
                     </div>
                     <div className="grid grid-cols-1 gap-2">
                       {[
-                        { id: 'gemini-3.1-pro-preview', name: 'Pro 3.1', desc: 'Best for complex reasoning', tag: 'Smartest', strength: 'Best for creative writing & deep analysis' },
-                        { id: 'gemini-3-flash-preview', name: 'Flash 3', desc: 'Balanced speed & intelligence', tag: 'Popular', strength: 'Fastest for chat & everyday tasks' },
-                        { id: 'gemini-flash-lite-latest', name: 'Flash Lite', desc: 'Lightweight & ultra-fast', tag: 'Fastest', strength: 'Ultra-low latency for simple queries' }
+                        { id: 'gemini-3.1-pro-preview', name: t('pro_3_1'), desc: t('pro_model_desc'), tag: t('smartest'), strength: t('pro_model_strength') },
+                        { id: 'gemini-3-flash-preview', name: t('flash_3'), desc: t('flash_model_desc'), tag: t('popular'), strength: t('flash_model_strength') },
+                        { id: 'gemini-3.1-flash-lite-preview', name: t('flash_lite'), desc: t('lite_model_desc'), tag: t('fastest'), strength: t('lite_model_strength') }
                       ].map(model => (
                         <div key={model.id} className="relative group/item">
                           <button
@@ -1188,7 +1264,7 @@ export default function ChatInterface({ initialMessages, onUpdateMessages }: Cha
                     <div className="flex items-center justify-between mb-3 px-1">
                       <div className="flex items-center gap-2">
                         <ImageIcon size={14} className="text-zinc-500" />
-                        <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">Visual Engine</span>
+                        <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">{t('visual_engine')}</span>
                       </div>
                       <button
                         onClick={() => setIsGenerationMode(!isGenerationMode)}
@@ -1198,15 +1274,15 @@ export default function ChatInterface({ initialMessages, onUpdateMessages }: Cha
                             : 'bg-zinc-800 text-zinc-500'
                         }`}
                       >
-                        {isGenerationMode ? 'Gen Mode ON' : 'Gen Mode OFF'}
+                        {isGenerationMode ? t('gen_mode_on', { mode: t('gen') }) : t('gen_mode_off', { mode: t('gen') })}
                       </button>
                     </div>
                     <div className="grid grid-cols-1 gap-2">
                       {[
-                        { id: 'gemini-3-pro-image-preview', name: 'Pro Image', desc: 'Highest detail & quality', tag: 'Best', strength: 'High-quality image generation for professional use' },
-                        { id: 'gemini-3.1-flash-image-preview', name: 'Flash HQ', desc: 'High quality & flexible', tag: 'HQ', strength: 'Great balance of speed and high-resolution detail' },
-                        { id: 'gemini-2.5-flash-image', name: 'Flash Image', desc: 'Fast generation', tag: 'Fast', strength: 'Rapid generation for quick concepts and ideation' },
-                        { id: 'imagen-4.0-generate-001', name: 'Imagen 4', desc: 'Photorealistic results', tag: 'New', strength: 'Advanced photorealism and artistic texture control' }
+                        { id: 'gemini-3-pro-image-preview', name: t('pro_image'), desc: t('highest_detail_quality'), tag: t('best'), strength: t('pro_image_strength') },
+                        { id: 'gemini-3.1-flash-image-preview', name: t('flash_hq'), desc: t('high_quality_flexible'), tag: t('hq'), strength: t('flash_hq_strength') },
+                        { id: 'gemini-2.5-flash-image', name: t('flash_image'), desc: t('fast_generation'), tag: t('fast'), strength: t('flash_image_strength') },
+                        { id: 'imagen-4.0-generate-001', name: t('imagen_4'), desc: t('photorealistic_results'), tag: t('new'), strength: t('imagen_4_strength') }
                       ].map(model => (
                         <div key={model.id} className="relative group/item">
                           <button
@@ -1255,7 +1331,7 @@ export default function ChatInterface({ initialMessages, onUpdateMessages }: Cha
                       }`}
                     >
                       <Sparkles size={12} />
-                      Generate
+                      {t('generate')}
                     </button>
                     <button
                       onClick={() => {
@@ -1267,7 +1343,7 @@ export default function ChatInterface({ initialMessages, onUpdateMessages }: Cha
                       }`}
                     >
                       <Layers size={12} />
-                      Orchestrate
+                      {t('orchestrate')}
                     </button>
                   </div>
                 </div>
@@ -1288,7 +1364,7 @@ export default function ChatInterface({ initialMessages, onUpdateMessages }: Cha
                   {fileMimeType.startsWith('image/') ? (
                     <img 
                       src={`data:${fileMimeType};base64,${selectedFile}`} 
-                      alt="Preview" 
+                      alt={t('preview')} 
                       className="w-full h-full object-cover"
                     />
                   ) : (
@@ -1307,7 +1383,7 @@ export default function ChatInterface({ initialMessages, onUpdateMessages }: Cha
                   </button>
                 </div>
                 <div className="flex flex-col gap-1 pr-2 min-w-[120px] max-w-[200px]">
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 truncate">{selectedFileName || 'File Context'}</span>
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 truncate">{selectedFileName || t('file_context')}</span>
                   <div className="flex gap-1">
                     {fileMimeType.startsWith('image/') ? (
                       <button 
@@ -1319,11 +1395,11 @@ export default function ChatInterface({ initialMessages, onUpdateMessages }: Cha
                         }`}
                       >
                         {isEditingMode ? <Wand2 size={10} /> : <ImageIcon size={10} />}
-                        {isEditingMode ? 'Editing' : 'Analysis'}
+                        {isEditingMode ? t('editing') : t('analysis')}
                       </button>
                     ) : (
                       <div className="px-2 py-1 bg-zinc-800 text-zinc-400 rounded-md text-[10px] font-bold uppercase">
-                        Analysis Mode
+                        {t('analysis_mode')}
                       </div>
                     )}
                   </div>
@@ -1346,7 +1422,7 @@ export default function ChatInterface({ initialMessages, onUpdateMessages }: Cha
               }`}
             >
               <MessageSquare size={12} />
-              Chat
+              {t('chat')}
             </button>
             <button
               onClick={() => {
@@ -1360,7 +1436,7 @@ export default function ChatInterface({ initialMessages, onUpdateMessages }: Cha
               }`}
             >
               <Sparkles size={12} />
-              Gen
+              {t('gen')}
             </button>
             <button
               onClick={() => {
@@ -1374,7 +1450,7 @@ export default function ChatInterface({ initialMessages, onUpdateMessages }: Cha
               }`}
             >
               <Layers size={12} />
-              Orch
+              {t('orch')}
             </button>
           </div>
 
@@ -1390,19 +1466,58 @@ export default function ChatInterface({ initialMessages, onUpdateMessages }: Cha
                 <div className="overflow-x-auto no-scrollbar flex items-center gap-2 pb-1 pr-12">
                   <div className="flex items-center gap-1 px-1">
                     <Sparkles size={10} className="text-emerald-500 animate-pulse" />
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 whitespace-nowrap">Try:</span>
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 whitespace-nowrap">{t('try')}</span>
                   </div>
                   {currentPrompts.map((prompt, index) => (
                     <button
                       key={index}
-                      onClick={() => setInput(prompt)}
+                      onClick={() => setInput(t(prompt))}
                       className="whitespace-nowrap px-3 py-1.5 bg-zinc-800/80 hover:bg-zinc-700 border border-white/5 rounded-full text-[11px] text-zinc-300 transition-all hover:scale-105 active:scale-95"
                     >
-                      {prompt}
+                      {t(prompt)}
                     </button>
                   ))}
                 </div>
                 <div className="absolute right-0 top-0 bottom-0 w-12 bg-gradient-to-l from-zinc-950 to-transparent pointer-events-none" />
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* Orchestration Config Selector */}
+          <AnimatePresence>
+            {isOrchestrationMode && orchestrationConfigs.length > 0 && (
+              <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 10 }}
+                className="absolute bottom-full left-0 w-full mb-3 flex items-center gap-2"
+              >
+                <div className="flex-1 bg-zinc-900/80 backdrop-blur-md border border-white/10 rounded-2xl p-2 flex items-center gap-2 overflow-x-auto no-scrollbar">
+                  <div className="flex items-center gap-1.5 px-2 py-1 border-r border-white/10 shrink-0">
+                    <Layers size={12} className="text-indigo-400" />
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">{t('config')}</span>
+                  </div>
+                  {orchestrationConfigs.map(config => (
+                    <button
+                      key={config.id}
+                      onClick={() => setSelectedOrchestrationConfig(config)}
+                      className={`whitespace-nowrap px-3 py-1.5 rounded-xl text-[11px] font-medium transition-all ${
+                        selectedOrchestrationConfig?.id === config.id
+                          ? 'bg-indigo-500 text-white shadow-lg'
+                          : 'bg-zinc-800 text-zinc-400 hover:text-zinc-200'
+                      }`}
+                    >
+                      {config.name}
+                    </button>
+                  ))}
+                </div>
+                <button
+                  onClick={onOpenOrchestrationSettings}
+                  className="p-2.5 bg-zinc-900/80 backdrop-blur-md border border-white/10 rounded-2xl text-zinc-400 hover:text-white transition-all shrink-0"
+                  title={t('manage_configs')}
+                >
+                  <Settings2 size={16} />
+                </button>
               </motion.div>
             )}
           </AnimatePresence>
@@ -1482,7 +1597,7 @@ export default function ChatInterface({ initialMessages, onUpdateMessages }: Cha
                           ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-400' 
                           : 'bg-zinc-800 border-white/5 text-zinc-400 hover:text-white'
                       }`}
-                      title="Advanced Settings"
+                      title={t('advanced_settings')}
                     >
                       <Settings2 size={16} />
                     </button>
@@ -1539,7 +1654,7 @@ export default function ChatInterface({ initialMessages, onUpdateMessages }: Cha
                           <div className="space-y-2">
                             <div className="flex items-center gap-2 text-[10px] font-bold text-zinc-400 uppercase tracking-wider">
                               <Square size={10} />
-                              Aspect Ratio
+                              {t('aspect_ratio')}
                             </div>
                             <div className="grid grid-cols-5 gap-1">
                               {(['1:1', '3:4', '4:3', '9:16', '16:9'] as const).map(ratio => (
@@ -1577,22 +1692,22 @@ export default function ChatInterface({ initialMessages, onUpdateMessages }: Cha
                           <div className="space-y-2">
                             <div className="flex items-center gap-2 text-[10px] font-bold text-zinc-400 uppercase tracking-wider">
                               <Palette size={10} />
-                              Artistic Style
+                              {t('artistic_style')}
                             </div>
                             <div className="grid grid-cols-2 gap-1 max-h-32 overflow-y-auto pr-1 scrollbar-hide">
                               {[
-                                { id: '', name: 'None' },
-                                { id: 'watercolor', name: 'Watercolor' },
-                                { id: 'oil painting', name: 'Oil Painting' },
-                                { id: '3d render', name: '3D Render' },
-                                { id: 'cyberpunk', name: 'Cyberpunk' },
-                                { id: 'minimalist', name: 'Minimalist' },
-                                { id: 'anime', name: 'Anime' },
-                                { id: 'pop art', name: 'Pop Art' },
-                                { id: 'sketch', name: 'Sketch' },
-                                { id: 'pixel art', name: 'Pixel Art' },
-                                { id: 'vaporwave', name: 'Vaporwave' },
-                                { id: 'synthwave', name: 'Synthwave' }
+                                { id: '', name: t('none') },
+                                { id: 'watercolor', name: t('watercolor') },
+                                { id: 'oil painting', name: t('oil_painting') },
+                                { id: '3d render', name: t('3d_render') },
+                                { id: 'cyberpunk', name: t('cyberpunk') },
+                                { id: 'minimalist', name: t('minimalist') },
+                                { id: 'anime', name: t('anime') },
+                                { id: 'pop art', name: t('pop_art') },
+                                { id: 'sketch', name: t('sketch') },
+                                { id: 'pixel art', name: t('pixel_art') },
+                                { id: 'vaporwave', name: t('vaporwave') },
+                                { id: 'synthwave', name: t('synthwave') }
                               ].map(style => (
                                 <button
                                   key={style.id}
@@ -1614,13 +1729,13 @@ export default function ChatInterface({ initialMessages, onUpdateMessages }: Cha
                           <div className="space-y-2">
                             <div className="flex items-center gap-2 text-[10px] font-bold text-zinc-400 uppercase tracking-wider">
                               <X size={10} />
-                              Negative Prompt
+                              {t('negative_prompt')}
                             </div>
                             <input 
                               type="text"
                               value={negativePrompt}
                               onChange={(e) => setNegativePrompt(e.target.value)}
-                              placeholder="Elements to exclude..."
+                              placeholder={t('exclude_elements')}
                               className="w-full bg-zinc-800 border border-white/5 rounded-lg px-3 py-2 text-[11px] text-zinc-100 placeholder-zinc-600 focus:ring-1 focus:ring-emerald-500/50 outline-none transition-all"
                             />
                           </div>
@@ -1630,13 +1745,13 @@ export default function ChatInterface({ initialMessages, onUpdateMessages }: Cha
                             <div className="flex items-center justify-between">
                               <div className="flex items-center gap-2 text-[10px] font-bold text-zinc-400 uppercase tracking-wider">
                                 <Hash size={10} />
-                                Seed (Optional)
+                                {t('seed_optional')}
                               </div>
                               <button
                                 type="button"
                                 onClick={() => setSeed(Math.floor(Math.random() * 1000000))}
                                 className="p-1 text-zinc-500 hover:text-emerald-500 transition-colors"
-                                title="Randomize Seed"
+                                title={t('randomize_seed')}
                               >
                                 <Dices size={12} />
                               </button>
@@ -1645,7 +1760,7 @@ export default function ChatInterface({ initialMessages, onUpdateMessages }: Cha
                               type="number"
                               value={seed || ''}
                               onChange={(e) => setSeed(e.target.value ? parseInt(e.target.value) : undefined)}
-                              placeholder="Random by default"
+                              placeholder={t('random_by_default')}
                               className="w-full bg-zinc-800 border border-white/5 rounded-lg px-3 py-2 text-[11px] text-zinc-100 placeholder-zinc-600 focus:ring-1 focus:ring-emerald-500/50 outline-none transition-all"
                             />
                           </div>
@@ -1705,7 +1820,7 @@ export default function ChatInterface({ initialMessages, onUpdateMessages }: Cha
                     ? 'bg-red-500/20 text-red-500 animate-pulse' 
                     : 'text-zinc-500 hover:text-zinc-300'
                 }`}
-                title={isRecording ? "Stop Recording" : "Voice Input"}
+                title={isRecording ? t('stop_recording') : t('voice_input')}
               >
                 {isRecording ? <MicOff size={18} /> : <Mic size={18} />}
               </button>

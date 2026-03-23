@@ -1,5 +1,6 @@
 import { GoogleGenAI, Type, Modality, GenerateContentResponse } from "@google/genai";
 import OpenAI from "openai";
+import i18n from '../i18n';
 
 const apiKey = process.env.GEMINI_API_KEY;
 const openAiKey = process.env.OPENAI_API_KEY;
@@ -7,7 +8,7 @@ const openAiKey = process.env.OPENAI_API_KEY;
 export const getGeminiModel = () => {
   const key = process.env.API_KEY || process.env.GEMINI_API_KEY;
   if (!key) {
-    throw new Error("Gemini API key is not set. Please configure it in Settings.");
+    throw new Error(i18n.t('gemini_api_key_not_set'));
   }
   return new GoogleGenAI({ apiKey: key });
 };
@@ -20,9 +21,9 @@ export class GeminiError extends Error {
 }
 
 function handleGeminiError(error: any): never {
-  console.error("Gemini API Error:", error);
+  console.error(i18n.t('gemini_api_error_console'), error);
   
-  let message = error.message || "An unexpected error occurred";
+  let message = error.message || i18n.t('unexpected_error_occurred');
   let status = error.status || error.code;
   let details = error;
 
@@ -41,39 +42,39 @@ function handleGeminiError(error: any): never {
   }
   
   if (message.includes("API_KEY_INVALID") || message.includes("API key not valid")) {
-    throw new GeminiError("The provided API key is invalid. Please check your configuration.", "AUTH_ERROR");
+    throw new GeminiError(i18n.t('api_key_invalid'), "AUTH_ERROR");
   }
   
   if (message.includes("SAFETY") || message.includes("blocked")) {
-    throw new GeminiError("The request was blocked by safety filters. Please try a different prompt.", "SAFETY_ERROR");
+    throw new GeminiError(i18n.t('safety_blocked'), "SAFETY_ERROR");
   }
 
   if (status === 400 || String(status) === "400" || message.includes("INVALID_ARGUMENT")) {
-    throw new GeminiError("The request was invalid. Please check your input and try again.", "INVALID_REQUEST");
+    throw new GeminiError(i18n.t('invalid_request_error'), "INVALID_REQUEST");
   }
 
   if (status === 403 || String(status) === "403" || message.includes("PERMISSION_DENIED")) {
-    throw new GeminiError("Permission denied. Please check your API key permissions.", "PERMISSION_DENIED");
+    throw new GeminiError(i18n.t('permission_denied_error'), "PERMISSION_DENIED");
   }
 
   if (status === 404 || String(status) === "404" || message.includes("NOT_FOUND")) {
-    throw new GeminiError("The requested resource was not found.", "NOT_FOUND");
+    throw new GeminiError(i18n.t('resource_not_found_error'), "NOT_FOUND");
   }
 
   if (status === 429 || String(status) === "429" || message.includes("quota") || message.includes("Rate limit")) {
-    throw new GeminiError("Rate limit exceeded. The system is currently busy. Please wait about 30-60 seconds before trying again.", "RATE_LIMIT");
+    throw new GeminiError(i18n.t('rate_limit_error'), "RATE_LIMIT");
   }
 
   if (status === 500 || String(status) === "500" || message.includes("INTERNAL")) {
-    throw new GeminiError("An internal server error occurred at the AI provider. Please try again later.", "INTERNAL_ERROR");
+    throw new GeminiError(i18n.t('internal_server_error'), "INTERNAL_ERROR");
   }
 
   if (status === 503 || String(status) === "503" || message.includes("high demand") || message.includes("UNAVAILABLE") || message.includes("Service Unavailable")) {
-    throw new GeminiError("The AI model is currently experiencing high demand. We are automatically retrying, but if this persists, please try again in a few moments.", "SERVICE_UNAVAILABLE");
+    throw new GeminiError(i18n.t('service_unavailable_error'), "SERVICE_UNAVAILABLE");
   }
 
   if (message.includes("network") || message.includes("fetch")) {
-    throw new GeminiError("Network error. Please check your internet connection.", "NETWORK_ERROR");
+    throw new GeminiError(i18n.t('network_error'), "NETWORK_ERROR");
   }
 
   throw new GeminiError(message, "UNKNOWN_ERROR", details);
@@ -172,7 +173,7 @@ RULES:
         handleGeminiError(error);
       }
       
-      console.warn(`Gemini Model ${model} failed, trying next...`);
+      console.warn(i18n.t('model_failed_trying_next_console', { model }));
       await delay(1000);
     }
   }
@@ -180,7 +181,7 @@ RULES:
   // If all Gemini models fail, try OpenAI as fallback
   const openai = getOpenAIClient();
   if (openai) {
-    console.info("All Gemini models failed or busy. Attempting OpenAI fallback...");
+    console.info(i18n.t('openai_fallback_info_console'));
     try {
       const completion = await openai.chat.completions.create({
         model: "gpt-4o",
@@ -216,11 +217,11 @@ RULES:
 
       const responseText = completion.choices[0]?.message?.content;
       if (!responseText) {
-        throw new Error("OpenAI returned an empty response.");
+        throw new Error(i18n.t('openai_empty_response'));
       }
       return responseText;
     } catch (oaError: any) {
-      console.error("OpenAI fallback also failed:", oaError);
+      console.error(i18n.t('openai_fallback_failed_console'), oaError);
       // If OpenAI also fails, throw the original Gemini error or a combined one
       handleGeminiError(lastError || oaError);
     }
@@ -270,7 +271,7 @@ async function generateImageWithRetry(ai: any, modelName: string, prompt: string
   } catch (error: any) {
     if (isTransientError(error) && retries > 0) {
       const delayTime = (6 - retries) * 2000;
-      console.warn(`Transient error, retrying in ${delayTime}ms... (${retries} retries left)`);
+      console.warn(i18n.t('transient_error_retrying_console', { delay: delayTime, retries }));
       await delay(delayTime);
       return generateImageWithRetry(ai, modelName, prompt, options, retries - 1);
     }
@@ -376,7 +377,7 @@ export async function editImage(imageB64: string, prompt: string, model: string 
       attempts++;
       if (isTransientError(error) && attempts < maxAttempts) {
         const delayTime = attempts * 2000;
-        console.warn(`Image edit transient error, retrying in ${delayTime}ms...`);
+        console.warn(i18n.t('image_edit_transient_error_retrying_console', { delay: delayTime }));
         await delay(delayTime);
         continue;
       }
@@ -420,7 +421,7 @@ export async function analyzeFile(fileB64: string, prompt: string, mimeType: str
         handleGeminiError(error);
       }
       
-      console.warn(`File analysis ${model} transient error, trying fallback in 1.5s...`);
+      console.warn(i18n.t('file_analysis_transient_error_trying_fallback_console', { model }));
       await delay(1500);
     }
   }

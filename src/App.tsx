@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { useTranslation } from 'react-i18next';
+import { useTranslation, Trans } from 'react-i18next';
+import i18n from './i18n';
 import { 
   LayoutDashboard, 
   MessageSquare, 
@@ -23,6 +24,7 @@ import {
   Globe
 } from 'lucide-react';
 import ChatInterface from './components/ChatInterface';
+import { OrchestrationSettings } from './components/OrchestrationSettings';
 import { 
   auth, 
   googleProvider, 
@@ -64,12 +66,53 @@ function sanitizeData(data: any): any {
   return data;
 }
 
+// Image compression utility
+async function compressImage(dataUrl: string, maxWidth = 1024, maxHeight = 1024, quality = 0.75): Promise<{ b64: string; mimeType: string }> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.src = dataUrl;
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      let width = img.width;
+      let height = img.height;
+
+      if (width > height) {
+        if (width > maxWidth) {
+          height *= maxWidth / width;
+          width = maxWidth;
+        }
+      } else {
+        if (height > maxHeight) {
+          width *= maxHeight / height;
+          height = maxHeight;
+        }
+      }
+
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        reject(new Error(i18n.t('canvas_context_error')));
+        return;
+      }
+      ctx.drawImage(img, 0, 0, width, height);
+      
+      const compressedDataUrl = canvas.toDataURL('image/jpeg', quality);
+      const b64 = compressedDataUrl.split(',')[1];
+      resolve({ b64, mimeType: 'image/jpeg' });
+    };
+    img.onerror = (err) => reject(err);
+  });
+}
+
 export default function App() {
   const { t, i18n } = useTranslation();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [settingsTab, setSettingsTab] = useState<'profile' | 'orchestration'>('profile');
   const [newDisplayName, setNewDisplayName] = useState('');
   const [isUpdatingName, setIsUpdatingName] = useState(false);
   
@@ -93,12 +136,12 @@ export default function App() {
         await getDocFromServer(doc(db, 'test', 'connection'));
       } catch (error) {
         if(error instanceof Error && error.message.includes('the client is offline')) {
-          console.error("Please check your Firebase configuration.");
+          console.error(t('check_firebase_config'));
         }
       }
     }
     testConnection();
-  }, []);
+  }, [t]);
 
   // Load sessions from Firestore
   useEffect(() => {
@@ -170,6 +213,14 @@ export default function App() {
       mimeType,
       createdAt: Date.now()
     };
+
+    // Check if the document size is within Firestore limits (1MB)
+    const fileSize = JSON.stringify(sessionFile).length;
+    if (fileSize > 1000000) {
+      console.error(t('file_too_large_console'), fileSize);
+      throw new Error(t('file_too_large'));
+    }
+
     try {
       await setDoc(doc(db, 'session_files', fileId), sanitizeData(sessionFile));
       return fileId;
@@ -198,32 +249,53 @@ export default function App() {
       
       // If file is present and is a base64 string, save it separately
       if (updatedMsg.file && updatedMsg.file.startsWith('data:')) {
-        const parts = updatedMsg.file.split(',');
-        const mime = parts[0].split(':')[1].split(';')[0];
-        const b64 = parts[1];
+        let mime = updatedMsg.file.split(',')[0].split(':')[1].split(';')[0];
+        let b64 = updatedMsg.file.split(',')[1];
         
-        // Only move to separate collection if it's large or if we want to be safe
+        // Compress images if they are large
+        if (mime.startsWith('image/') && b64.length > 500000) {
+          try {
+            const compressed = await compressImage(updatedMsg.file);
+            b64 = compressed.b64;
+            mime = compressed.mimeType;
+          } catch (e) {
+            console.warn(t('compress_failed_console'), e);
+          }
+        }
+
+        // Only move to separate collection if it's still large or if we want to be safe
         // For now, let's move all images to be safe from the 1MB limit
         try {
           const fileId = await saveSessionFile(sessionId, b64, mime);
           updatedMsg.fileId = fileId;
+          updatedMsg.fileMimeType = mime;
           delete updatedMsg.file; // Remove base64 from session doc
         } catch (e) {
-          console.error("Failed to save session file:", e);
+          console.error(t('save_file_failed_console'), e);
+          // If it fails, we keep the file in the message, but it might cause session save to fail too
         }
       }
 
       if (updatedMsg.beforeFile && updatedMsg.beforeFile.startsWith('data:')) {
-        const parts = updatedMsg.beforeFile.split(',');
-        const mime = parts[0].split(':')[1].split(';')[0];
-        const b64 = parts[1];
+        let mime = updatedMsg.beforeFile.split(',')[0].split(':')[1].split(';')[0];
+        let b64 = updatedMsg.beforeFile.split(',')[1];
+        
+        if (mime.startsWith('image/') && b64.length > 500000) {
+          try {
+            const compressed = await compressImage(updatedMsg.beforeFile);
+            b64 = compressed.b64;
+            mime = compressed.mimeType;
+          } catch (e) {
+            console.warn(t('compress_failed_console'), e);
+          }
+        }
         
         try {
           const fileId = await saveSessionFile(sessionId, b64, mime);
           updatedMsg.beforeFileId = fileId;
           delete updatedMsg.beforeFile; // Remove base64 from session doc
         } catch (e) {
-          console.error("Failed to save session beforeFile:", e);
+          console.error(t('save_before_file_failed_console'), e);
         }
       }
 
@@ -236,6 +308,16 @@ export default function App() {
       title: newTitle,
       updatedAt: Date.now()
     });
+
+    // Final safety check: if the session document is still too large, we might need to truncate history
+    // but for now, moving files to separate collection should be enough.
+    // Firestore limit is 1MB. Let's check the size of the JSON string.
+    const sessionSize = JSON.stringify(updatedSession).length;
+    if (sessionSize > 1000000) {
+      console.warn(t('session_too_large_console'));
+      // Keep only the last 20 messages if it's still too large
+      updatedSession.messages = updatedSession.messages.slice(-20);
+    }
 
     try {
       await setDoc(doc(db, 'sessions', sessionId), updatedSession);
@@ -252,8 +334,8 @@ export default function App() {
     try {
       await signInWithPopup(auth, googleProvider);
     } catch (error: any) {
-      console.error("Login failed", error);
-      setAuthError(error.message || "Google login failed");
+      console.error(t('login_failed_console'), error);
+      setAuthError(error.message || t('google_login_failed'));
     }
   };
 
@@ -280,8 +362,8 @@ export default function App() {
         await signInWithEmailAndPassword(auth, email, password);
       }
     } catch (error: any) {
-      console.error("Auth failed", error);
-      setAuthError(error.message || "Authentication failed");
+      console.error(t('auth_failed_console'), error);
+      setAuthError(error.message || t('auth_failed'));
     } finally {
       setAuthLoading(false);
     }
@@ -292,9 +374,9 @@ export default function App() {
       try {
         setAuthLoading(true);
         await sendEmailVerification(user);
-        alert("Verification email sent!");
+        alert(t('verification_email_sent'));
       } catch (error: any) {
-        setAuthError(error.message || "Failed to resend verification");
+        setAuthError(error.message || t('failed_resend_verification'));
       } finally {
         setAuthLoading(false);
       }
@@ -307,7 +389,7 @@ export default function App() {
       setVerificationSent(false);
       setIsSettingsOpen(false);
     } catch (error) {
-      console.error("Logout failed", error);
+      console.error(t('logout_failed_console'), error);
     }
   };
 
@@ -322,8 +404,8 @@ export default function App() {
       setUser({ ...user, displayName: newDisplayName });
       setIsSettingsOpen(false);
     } catch (error: any) {
-      console.error("Failed to update name", error);
-      setAuthError(error.message || "Failed to update name");
+      console.error(t('update_name_failed_console'), error);
+      setAuthError(error.message || t('failed_update_name'));
     } finally {
       setIsUpdatingName(false);
     }
@@ -340,7 +422,7 @@ export default function App() {
       fileName += '.json';
     } else {
       content = activeSession.messages.map(m => 
-        `[${m.role.toUpperCase()}]\n${m.content}\n${m.image ? `[Image attached]\n` : ''}\n`
+        `[${m.role.toUpperCase()}]\n${m.content}\n${m.file ? `[${t('file_attached')}]\n` : ''}\n`
       ).join('-------------------\n');
       fileName += '.txt';
     }
@@ -374,7 +456,7 @@ export default function App() {
           <div className="w-12 h-12 bg-zinc-100 rounded-xl flex items-center justify-center text-zinc-900 animate-pulse">
             <Zap size={24} />
           </div>
-          <span className="text-sm font-medium animate-pulse">Initializing {t('app_name')}...</span>
+          <span className="text-sm font-medium animate-pulse">{t('initializing')} {t('app_name')}...</span>
         </div>
       </div>
     );
@@ -393,11 +475,11 @@ export default function App() {
               <div className="space-y-2">
                 <h1 className="text-2xl font-bold tracking-tight text-emerald-400">{t('verification_sent')}</h1>
                 <p className="text-zinc-400 text-sm">
-                  We've sent a verification link to your email. Please check your inbox and verify your account.
+                  {t('verification_sent_desc')}
                 </p>
               </div>
               <div className="p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-xl">
-                <p className="text-emerald-400 text-xs font-medium">Check your email & verify, then log in</p>
+                <p className="text-emerald-400 text-xs font-medium">{t('verification_check')}</p>
               </div>
               <button 
                 onClick={() => setVerificationSent(false)}
@@ -413,7 +495,7 @@ export default function App() {
                   {isSignUp ? t('sign_up') : t('sign_in')}
                 </h1>
                 <p className="text-zinc-400 text-sm">
-                  {isSignUp ? 'Join ' + t('app_name') + ' to start your journey' : 'Sign in to continue your intelligent journey'}
+                  {isSignUp ? t('join_journey', { appName: t('app_name') }) : t('sign_in_journey')}
                 </p>
               </div>
 
@@ -471,7 +553,7 @@ export default function App() {
 
               <div className="w-full flex items-center gap-4">
                 <div className="h-px flex-1 bg-white/5" />
-                <span className="text-[10px] text-zinc-500 uppercase font-bold">OR</span>
+                <span className="text-[10px] text-zinc-500 uppercase font-bold">{t('or')}</span>
                 <div className="h-px flex-1 bg-white/5" />
               </div>
 
@@ -498,7 +580,7 @@ export default function App() {
             </>
           )}
 
-          <p className="text-[10px] text-zinc-500 uppercase tracking-widest font-bold">Secure Authentication via Firebase</p>
+          <p className="text-[10px] text-zinc-500 uppercase tracking-widest font-bold">{t('secure_auth')}</p>
         </div>
       </div>
     );
@@ -512,9 +594,13 @@ export default function App() {
             <Mail size={32} />
           </div>
           <div className="space-y-2">
-            <h1 className="text-2xl font-bold tracking-tight text-amber-500">Verify your email</h1>
+            <h1 className="text-2xl font-bold tracking-tight text-amber-500">{t('verify_email')}</h1>
             <p className="text-zinc-400 text-sm">
-              Your email address <strong>{user.email}</strong> is not verified yet. Please check your inbox for the verification link.
+              <Trans 
+                i18nKey="email_not_verified" 
+                values={{ email: user.email }}
+                components={{ strong: <strong className="text-zinc-100" /> }}
+              />
             </p>
           </div>
           
@@ -524,17 +610,17 @@ export default function App() {
               disabled={authLoading}
               className="w-full bg-zinc-100 text-zinc-900 py-3 rounded-xl font-semibold hover:bg-white transition-all shadow-lg disabled:opacity-50"
             >
-              {authLoading ? 'Sending...' : 'Resend Verification Email'}
+              {authLoading ? t('sending') : t('resend_verification')}
             </button>
             <button 
               onClick={handleLogout}
               className="w-full bg-zinc-900 border border-white/10 text-zinc-100 py-3 rounded-xl font-medium hover:bg-zinc-800 transition-all"
             >
-              Back to Login
+              {t('back_to_login')}
             </button>
           </div>
           
-          <p className="text-[10px] text-zinc-500 uppercase tracking-widest font-bold">Email Verification Required</p>
+          <p className="text-[10px] text-zinc-500 uppercase tracking-widest font-bold">{t('verification_required')}</p>
         </div>
       </div>
     );
@@ -617,12 +703,12 @@ export default function App() {
         <div className="p-2 border-t border-white/5">
           <div className="flex items-center gap-3 p-2.5 mb-2">
             <img 
-              src={user.photoURL || `https://ui-avatars.com/api/?name=${user.displayName || 'User'}`} 
-              alt="Profile" 
+              src={user.photoURL || `https://ui-avatars.com/api/?name=${user.displayName || t('anonymous')}`} 
+              alt={t('profile')} 
               className="w-8 h-8 rounded-full border border-white/10"
             />
             <div className="flex-1 min-w-0">
-              <p className="text-xs font-bold truncate">{user.displayName || 'Anonymous'}</p>
+              <p className="text-xs font-bold truncate">{user.displayName || t('anonymous')}</p>
               <p className="text-[10px] text-zinc-500 truncate">{user.email}</p>
             </div>
           </div>
@@ -661,10 +747,32 @@ export default function App() {
               initial={{ opacity: 0, scale: 0.95, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="relative w-full max-w-md bg-zinc-900 border border-white/10 rounded-3xl p-8 shadow-2xl"
+              className={`relative w-full ${settingsTab === 'orchestration' ? 'max-w-4xl' : 'max-w-md'} bg-zinc-900 border border-white/10 rounded-3xl p-8 shadow-2xl overflow-y-auto max-h-[90vh]`}
             >
               <div className="flex items-center justify-between mb-6">
                 <h2 className="text-xl font-bold text-zinc-100">{t('settings')}</h2>
+                <div className="flex items-center gap-2 bg-zinc-950 p-1 rounded-xl border border-white/5">
+                  <button
+                    onClick={() => setSettingsTab('profile')}
+                    className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                      settingsTab === 'profile' 
+                        ? 'bg-zinc-800 text-white shadow-lg' 
+                        : 'text-zinc-500 hover:text-zinc-300'
+                    }`}
+                  >
+                    {t('profile')}
+                  </button>
+                  <button
+                    onClick={() => setSettingsTab('orchestration')}
+                    className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                      settingsTab === 'orchestration' 
+                        ? 'bg-zinc-800 text-white shadow-lg' 
+                        : 'text-zinc-500 hover:text-zinc-300'
+                    }`}
+                  >
+                    {t('orchestrate')}
+                  </button>
+                </div>
                 <button 
                   onClick={() => setIsSettingsOpen(false)}
                   className="p-2 hover:bg-zinc-800 rounded-full transition-colors text-zinc-500"
@@ -673,96 +781,103 @@ export default function App() {
                 </button>
               </div>
 
-              <form onSubmit={handleUpdateName} className="space-y-6">
-                <div className="space-y-2">
-                  <label className="text-xs font-bold text-zinc-500 uppercase tracking-widest">{t('display_name')}</label>
-                  <div className="relative">
-                    <UserIcon className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" size={18} />
-                    <input
-                      type="text"
-                      placeholder={t('display_name')}
-                      value={newDisplayName}
-                      onChange={(e) => setNewDisplayName(e.target.value)}
-                      className="w-full bg-zinc-950 border border-white/10 rounded-xl py-3 pl-10 pr-4 text-sm text-zinc-100 focus:outline-none focus:border-white/20 transition-colors"
-                      required
-                    />
+              {settingsTab === 'profile' ? (
+                <>
+                  <form onSubmit={handleUpdateName} className="space-y-6">
+                    <div className="space-y-2">
+                      <label className="text-xs font-bold text-zinc-500 uppercase tracking-widest">{t('display_name')}</label>
+                      <div className="relative">
+                        <UserIcon className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" size={18} />
+                        <input
+                          type="text"
+                          placeholder={t('display_name')}
+                          value={newDisplayName}
+                          onChange={(e) => setNewDisplayName(e.target.value)}
+                          className="w-full bg-zinc-950 border border-white/10 rounded-xl py-3 pl-10 pr-4 text-sm text-zinc-100 focus:outline-none focus:border-white/20 transition-colors"
+                          required
+                        />
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <label className="text-xs font-bold text-zinc-500 uppercase tracking-widest">{t('language')}</label>
+                      <div className="relative">
+                        <Globe className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" size={18} />
+                        <select
+                          value={i18n.language}
+                          onChange={(e) => i18n.changeLanguage(e.target.value)}
+                          className="w-full bg-zinc-950 border border-white/10 rounded-xl py-3 pl-10 pr-4 text-sm text-zinc-100 focus:outline-none focus:border-white/20 transition-colors appearance-none"
+                        >
+                          <option value="en">{t('language_en')}</option>
+                          <option value="es">{t('language_es')}</option>
+                          <option value="fr">{t('language_fr')}</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="pt-4 flex gap-3">
+                      <button
+                        type="button"
+                        onClick={() => setIsSettingsOpen(false)}
+                        className="flex-1 px-4 py-3 rounded-xl text-sm font-semibold text-zinc-400 hover:bg-zinc-800 transition-colors"
+                      >
+                        {t('cancel')}
+                      </button>
+                      <button
+                        type="submit"
+                        disabled={isUpdatingName || !newDisplayName.trim()}
+                        className="flex-1 bg-zinc-100 text-zinc-900 px-4 py-3 rounded-xl text-sm font-semibold hover:bg-white transition-all shadow-lg disabled:opacity-50"
+                      >
+                        {isUpdatingName ? t('updating') : t('update_name')}
+                      </button>
+                    </div>
+                  </form>
+
+                  <div className="mt-8 pt-6 border-t border-white/5 space-y-4">
+                    <label className="text-xs font-bold text-zinc-600 uppercase tracking-widest">{t('chat_history')}</label>
+                    <div className="grid grid-cols-1 gap-2">
+                      <button
+                        onClick={() => exportChatHistory('json')}
+                        disabled={!activeSession}
+                        className="flex items-center justify-between w-full p-3 bg-zinc-950 border border-white/5 rounded-xl text-sm text-zinc-300 hover:text-white hover:bg-zinc-800 transition-all group disabled:opacity-50"
+                      >
+                        <div className="flex items-center gap-3">
+                          <Download size={16} className="text-zinc-500 group-hover:text-zinc-300" />
+                          <span>{t('export_json')}</span>
+                        </div>
+                        <span className="text-[10px] font-bold text-zinc-600">.json</span>
+                      </button>
+                      
+                      <button
+                        onClick={() => exportChatHistory('text')}
+                        disabled={!activeSession}
+                        className="flex items-center justify-between w-full p-3 bg-zinc-950 border border-white/5 rounded-xl text-sm text-zinc-300 hover:text-white hover:bg-zinc-800 transition-all group disabled:opacity-50"
+                      >
+                        <div className="flex items-center gap-3">
+                          <Download size={16} className="text-zinc-500 group-hover:text-zinc-300" />
+                          <span>{t('export_text')}</span>
+                        </div>
+                        <span className="text-[10px] font-bold text-zinc-600">.txt</span>
+                      </button>
+
+                      <button
+                        onClick={copyChatHistory}
+                        disabled={!activeSession}
+                        className="flex items-center justify-between w-full p-3 bg-zinc-950 border border-white/5 rounded-xl text-sm text-zinc-300 hover:text-white hover:bg-zinc-800 transition-all group disabled:opacity-50"
+                      >
+                        <div className="flex items-center gap-3">
+                          <Copy size={16} className="text-zinc-500 group-hover:text-zinc-300" />
+                          <span>{t('copy')}</span>
+                        </div>
+                      </button>
+                    </div>
                   </div>
-                </div>
-
-                <div className="space-y-2">
-                  <label className="text-xs font-bold text-zinc-500 uppercase tracking-widest">{t('language')}</label>
-                  <div className="relative">
-                    <Globe className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" size={18} />
-                    <select
-                      value={i18n.language}
-                      onChange={(e) => i18n.changeLanguage(e.target.value)}
-                      className="w-full bg-zinc-950 border border-white/10 rounded-xl py-3 pl-10 pr-4 text-sm text-zinc-100 focus:outline-none focus:border-white/20 transition-colors appearance-none"
-                    >
-                      <option value="en">English</option>
-                      <option value="es">Español</option>
-                      <option value="fr">Français</option>
-                    </select>
-                  </div>
-                </div>
-
-                <div className="pt-4 flex gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setIsSettingsOpen(false)}
-                    className="flex-1 px-4 py-3 rounded-xl text-sm font-semibold text-zinc-400 hover:bg-zinc-800 transition-colors"
-                  >
-                    {t('cancel')}
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={isUpdatingName || !newDisplayName.trim()}
-                    className="flex-1 bg-zinc-100 text-zinc-900 px-4 py-3 rounded-xl text-sm font-semibold hover:bg-white transition-all shadow-lg disabled:opacity-50"
-                  >
-                    {isUpdatingName ? t('updating') : t('update_name')}
-                  </button>
-                </div>
-              </form>
-
-              <div className="mt-8 pt-6 border-t border-white/5 space-y-4">
-                <label className="text-xs font-bold text-zinc-600 uppercase tracking-widest">{t('chat_history')}</label>
-                <div className="grid grid-cols-1 gap-2">
-                  <button
-                    onClick={() => exportChatHistory('json')}
-                    disabled={!activeSession}
-                    className="flex items-center justify-between w-full p-3 bg-zinc-950 border border-white/5 rounded-xl text-sm text-zinc-300 hover:text-white hover:bg-zinc-800 transition-all group disabled:opacity-50"
-                  >
-                    <div className="flex items-center gap-3">
-                      <Download size={16} className="text-zinc-500 group-hover:text-zinc-300" />
-                      <span>Export as JSON</span>
-                    </div>
-                    <span className="text-[10px] font-bold text-zinc-600">.json</span>
-                  </button>
-                  
-                  <button
-                    onClick={() => exportChatHistory('text')}
-                    disabled={!activeSession}
-                    className="flex items-center justify-between w-full p-3 bg-zinc-950 border border-white/5 rounded-xl text-sm text-zinc-300 hover:text-white hover:bg-zinc-800 transition-all group disabled:opacity-50"
-                  >
-                    <div className="flex items-center gap-3">
-                      <Download size={16} className="text-zinc-500 group-hover:text-zinc-300" />
-                      <span>Export as Text</span>
-                    </div>
-                    <span className="text-[10px] font-bold text-zinc-600">.txt</span>
-                  </button>
-
-                  <button
-                    onClick={copyChatHistory}
-                    disabled={!activeSession}
-                    className="flex items-center justify-between w-full p-3 bg-zinc-950 border border-white/5 rounded-xl text-sm text-zinc-300 hover:text-white hover:bg-zinc-800 transition-all group disabled:opacity-50"
-                  >
-                    <div className="flex items-center gap-3">
-                      <Copy size={16} className="text-zinc-500 group-hover:text-zinc-300" />
-                      <span>{t('copy')}</span>
-                    </div>
-                  </button>
-                </div>
-              </div>
+                </>
+              ) : (
+                <OrchestrationSettings />
+              )}
             </motion.div>
+
           </div>
         )}
       </AnimatePresence>
@@ -797,6 +912,10 @@ export default function App() {
               <ChatInterface 
                 initialMessages={activeSession.messages}
                 onUpdateMessages={(msgs) => updateSessionMessages(activeSession.id, msgs)}
+                onOpenOrchestrationSettings={() => {
+                  setSettingsTab('orchestration');
+                  setIsSettingsOpen(true);
+                }}
               />
             </div>
           ) : (

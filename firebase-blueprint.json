@@ -38,6 +38,35 @@
         "createdAt": { "type": "number", "description": "Timestamp when the file was created." }
       },
       "required": ["id", "sessionId", "data", "mimeType", "createdAt"]
+    },
+    "OrchestrationConfig": {
+      "title": "OrchestrationConfig",
+      "description": "A custom configuration for AI agents used in orchestration.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique identifier for the configuration." },
+        "userId": { "type": "string", "description": "The UID of the user who owns this configuration." },
+        "name": { "type": "string", "description": "The name of the configuration." },
+        "globalContext": { "type": "string", "description": "Global rules and accuracy protocol for all agents." },
+        "agents": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "name": { "type": "string" },
+              "responsibilities": { "type": "string" },
+              "outputFormat": { "type": "string" },
+              "model": { "type": "string" }
+            }
+          },
+          "description": "The list of agents in the orchestration."
+        },
+        "isDefault": { "type": "boolean", "description": "Whether this is the default configuration for the user." },
+        "createdAt": { "type": "number" },
+        "updatedAt": { "type": "number" }
+      },
+      "required": ["id", "userId", "name", "globalContext", "agents", "createdAt", "updatedAt"]
     }
   },
   "firestore": {
@@ -48,6 +77,10 @@
     "/session_files/{fileId}": {
       "schema": "SessionFile",
       "description": "Collection of files associated with chat sessions."
+    },
+    "/orchestration_configs/{configId}": {
+      "schema": "OrchestrationConfig",
+      "description": "Collection of custom orchestration configurations."
     }
   }
 }

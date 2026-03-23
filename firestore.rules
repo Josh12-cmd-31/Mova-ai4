@@ -67,9 +67,32 @@ service cloud.firestore {
              data.createdAt is number;
     }
 
+    function isValidOrchestrationConfig(data) {
+      return data.keys().hasAll(['id', 'userId', 'name', 'globalContext', 'agents', 'createdAt', 'updatedAt']) &&
+             data.id is string &&
+             data.userId is string &&
+             data.name is string && data.name.size() <= 100 &&
+             data.globalContext is string && data.globalContext.size() <= 5000 &&
+             data.agents is list && data.agents.size() <= 10 &&
+             data.createdAt is number &&
+             data.updatedAt is number;
+    }
+
     // ===============================================================
     // Rules
     // ===============================================================
+
+    match /orchestration_configs/{configId} {
+      allow read: if isOwner(resource.data.userId) || isAdmin();
+      allow create: if isAuthenticated() && 
+                      isValidOrchestrationConfig(request.resource.data) && 
+                      isOwner(request.resource.data.userId);
+      allow update: if isAuthenticated() && 
+                      isValidOrchestrationConfig(request.resource.data) && 
+                      isOwner(resource.data.userId) && 
+                      request.resource.data.userId == resource.data.userId;
+      allow delete: if isOwner(resource.data.userId) || isAdmin();
+    }
 
     match /session_files/{fileId} {
       allow read: if isAuthenticated() && isSessionOwner(resource.data.sessionId);
