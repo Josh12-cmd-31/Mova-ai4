@@ -219,6 +219,7 @@ export default function ChatInterface({ initialMessages, onUpdateMessages, onOpe
   const [isGenerationMode, setIsGenerationMode] = useState(false);
   const [isOrchestrationMode, setIsOrchestrationMode] = useState(false);
   const [selectedImageModel, setSelectedImageModel] = useState('gemini-2.5-flash-image');
+  const [isMagicEditPending, setIsMagicEditPending] = useState(false);
 
   const handleShare = async (dataUrl: string) => {
     try {
@@ -336,6 +337,13 @@ export default function ChatInterface({ initialMessages, onUpdateMessages, onOpe
         setSelectedFile(base64String);
         setFileMimeType(file.type);
         setSelectedFileName(file.name);
+        
+        if (isMagicEditPending && isImage) {
+          setIsEditingMode(true);
+          setIsGenerationMode(false);
+          setIsOrchestrationMode(false);
+          setIsMagicEditPending(false);
+        }
       };
       reader.readAsDataURL(file);
     }
@@ -1179,9 +1187,10 @@ export default function ChatInterface({ initialMessages, onUpdateMessages, onOpe
               >
                 <div className="p-4 space-y-6">
                   {/* Quick Actions Section */}
-                  <div className="grid grid-cols-2 gap-2">
+                  <div className="grid grid-cols-3 gap-2">
                     <button
                       onClick={() => {
+                        setIsMagicEditPending(false);
                         if (fileInputRef.current) {
                           fileInputRef.current.accept = "image/*";
                           fileInputRef.current.click();
@@ -1193,10 +1202,33 @@ export default function ChatInterface({ initialMessages, onUpdateMessages, onOpe
                       <div className="w-10 h-10 rounded-lg bg-zinc-700 flex items-center justify-center text-zinc-300 group-hover:text-white transition-colors">
                         <ImageIcon size={20} />
                       </div>
-                      <div className="text-[10px] font-bold text-zinc-100 uppercase tracking-wider">{t('upload_image')}</div>
+                      <div className="text-center">
+                        <div className="text-[10px] font-bold text-zinc-100 uppercase tracking-wider">{t('upload_image')}</div>
+                        <div className="text-[8px] text-zinc-500 uppercase tracking-tighter mt-0.5 leading-none">{t('upload_image_desc')}</div>
+                      </div>
                     </button>
                     <button
                       onClick={() => {
+                        setIsMagicEditPending(true);
+                        if (fileInputRef.current) {
+                          fileInputRef.current.accept = "image/*";
+                          fileInputRef.current.click();
+                        }
+                        setIsMenuOpen(false);
+                      }}
+                      className="flex flex-col items-center gap-2 p-3 bg-indigo-500/10 hover:bg-indigo-500/20 border border-indigo-500/20 rounded-xl transition-colors group"
+                    >
+                      <div className="w-10 h-10 rounded-lg bg-indigo-500/20 flex items-center justify-center text-indigo-400 group-hover:text-indigo-300 transition-colors">
+                        <Sparkles size={20} />
+                      </div>
+                      <div className="text-center">
+                        <div className="text-[10px] font-bold text-indigo-100 uppercase tracking-wider">{t('magic_edit')}</div>
+                        <div className="text-[8px] text-indigo-300/60 uppercase tracking-tighter mt-0.5 leading-none">{t('magic_edit_desc')}</div>
+                      </div>
+                    </button>
+                    <button
+                      onClick={() => {
+                        setIsMagicEditPending(false);
                         if (fileInputRef.current) {
                           fileInputRef.current.accept = "video/*,audio/*,application/pdf,text/*";
                           fileInputRef.current.click();
@@ -1208,7 +1240,10 @@ export default function ChatInterface({ initialMessages, onUpdateMessages, onOpe
                       <div className="w-10 h-10 rounded-lg bg-zinc-700 flex items-center justify-center text-zinc-300 group-hover:text-white transition-colors">
                         <FileText size={20} />
                       </div>
-                      <div className="text-[10px] font-bold text-zinc-100 uppercase tracking-wider">{t('upload_file')}</div>
+                      <div className="text-center">
+                        <div className="text-[10px] font-bold text-zinc-100 uppercase tracking-wider">{t('upload_file')}</div>
+                        <div className="text-[8px] text-zinc-500 uppercase tracking-tighter mt-0.5 leading-none">{t('upload_file_desc')}</div>
+                      </div>
                     </button>
                   </div>
 
