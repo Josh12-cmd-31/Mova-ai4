@@ -571,7 +571,7 @@ export default function ChatInterface({ initialMessages, onUpdateMessages, onOpe
           userId: auth.currentUser?.uid || 'anonymous',
           name: 'Default',
           isDefault: true,
-          globalContext: `SYSTEM ROLE: You are Mova AI, a coordinated multi-agent system.`,
+          globalContext: `SYSTEM ROLE: You are Mova AI Studio, a coordinated multi-agent system.`,
           agents: [
             { id: '1', name: 'Analyzer', responsibilities: 'Analyze request', outputFormat: 'Summary', model: 'gemini-3.1-pro-preview' },
             { id: '2', name: 'Generator', responsibilities: 'Generate content', outputFormat: 'Draft', model: 'gemini-3.1-pro-preview' },

@@ -142,7 +142,7 @@ export async function chatWithGemini(message: string, history: any[] = [], selec
       const chat = ai.chats.create({
         model: model,
         config: {
-          systemInstruction: `You are Mova AI, an advanced multimodal AI system specializing in creative and technical writing. You are precise, analytical, and strategic. 
+          systemInstruction: `You are Mova AI Studio, an advanced multimodal AI system specializing in creative and technical writing. You are precise, analytical, and strategic. 
 
 CAPABILITIES:
 - Creative Writing: You excel at generating high-quality song lyrics, movie/play scripts, short stories, and poetry based on any given theme, mood, or genre.
@@ -195,7 +195,7 @@ RULES:
       const completion = await openai.chat.completions.create({
         model: "gpt-4o",
         messages: [
-          { role: "system", content: `You are Mova AI, an advanced multimodal AI system specializing in creative and technical writing. You are precise, analytical, and strategic. 
+          { role: "system", content: `You are Mova AI Studio, an advanced multimodal AI system specializing in creative and technical writing. You are precise, analytical, and strategic. 
 
 CAPABILITIES:
 - Creative Writing: High-quality song lyrics, movie/play scripts, short stories, and poetry based on any given theme, mood, or genre.

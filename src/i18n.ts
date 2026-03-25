@@ -5,7 +5,7 @@ import LanguageDetector from 'i18next-browser-languagedetector';
 const resources = {
   en: {
     translation: {
-      "app_name": "Mova AI",
+      "app_name": "Mova AI Studio",
       "welcome_message": "How can I help you today?",
       "new_chat": "New Chat",
       "gallery": "Gallery",
@@ -24,7 +24,7 @@ const resources = {
       "original": "Original",
       "edited": "Edited",
       "maximize": "Maximize",
-      "mova_ai_mistakes": "mova ai can make mistakes. Check important info.",
+      "mova_ai_mistakes": "Mova AI Studio can make mistakes. Check important info.",
       "sign_in": "Sign In",
       "sign_out": "Sign Out",
       "sign_up": "Sign Up",
@@ -294,7 +294,7 @@ const resources = {
   },
   es: {
     translation: {
-      "app_name": "Mova AI",
+      "app_name": "Mova AI Studio",
       "welcome_message": "¿Cómo puedo ayudarte hoy?",
       "new_chat": "Nuevo Chat",
       "gallery": "Galería",
@@ -313,7 +313,7 @@ const resources = {
       "original": "Original",
       "edited": "Editado",
       "maximize": "Maximizar",
-      "mova_ai_mistakes": "mova ai puede cometer errores. Verifica la info importante.",
+      "mova_ai_mistakes": "Mova AI Studio puede cometer errores. Verifica la info importante.",
       "sign_in": "Iniciar Sesión",
       "sign_out": "Cerrar Sesión",
       "sign_up": "Registrarse",
@@ -572,7 +572,7 @@ const resources = {
   },
   fr: {
     translation: {
-      "app_name": "Mova AI",
+      "app_name": "Mova AI Studio",
       "welcome_message": "Comment puis-je vous aider aujourd'hui ?",
       "new_chat": "Nouveau Chat",
       "gallery": "Galerie",
@@ -591,7 +591,7 @@ const resources = {
       "original": "Original",
       "edited": "Modifié",
       "maximize": "Maximiser",
-      "mova_ai_mistakes": "mova ai peut faire des erreurs. Vérifiez les infos importantes.",
+      "mova_ai_mistakes": "Mova AI Studio peut faire des erreurs. Vérifiez les infos importantes.",
       "sign_in": "Se Connecter",
       "sign_out": "Se Déconnecter",
       "sign_up": "S'Inscrire",
