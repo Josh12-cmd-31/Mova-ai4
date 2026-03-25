@@ -41,40 +41,49 @@ function handleGeminiError(error: any): never {
     }
   }
   
-  if (message.includes("API_KEY_INVALID") || message.includes("API key not valid")) {
+  const lowerMessage = message.toLowerCase();
+
+  if (lowerMessage.includes("api_key_invalid") || lowerMessage.includes("api key not valid") || lowerMessage.includes("invalid api key")) {
     throw new GeminiError(i18n.t('api_key_invalid'), "AUTH_ERROR");
   }
   
-  if (message.includes("SAFETY") || message.includes("blocked")) {
+  if (lowerMessage.includes("safety") || lowerMessage.includes("blocked") || lowerMessage.includes("candidate was blocked")) {
+    if (lowerMessage.includes("image")) {
+      throw new GeminiError(i18n.t('safety_block_gen'), "SAFETY_ERROR");
+    }
     throw new GeminiError(i18n.t('safety_blocked'), "SAFETY_ERROR");
   }
 
-  if (status === 400 || String(status) === "400" || message.includes("INVALID_ARGUMENT")) {
+  if (status === 400 || String(status) === "400" || lowerMessage.includes("invalid_argument") || lowerMessage.includes("bad request")) {
     throw new GeminiError(i18n.t('invalid_request_error'), "INVALID_REQUEST");
   }
 
-  if (status === 403 || String(status) === "403" || message.includes("PERMISSION_DENIED")) {
+  if (status === 403 || String(status) === "403" || lowerMessage.includes("permission_denied")) {
     throw new GeminiError(i18n.t('permission_denied_error'), "PERMISSION_DENIED");
   }
 
-  if (status === 404 || String(status) === "404" || message.includes("NOT_FOUND")) {
+  if (status === 404 || String(status) === "404" || lowerMessage.includes("not_found") || lowerMessage.includes("resource not found")) {
     throw new GeminiError(i18n.t('resource_not_found_error'), "NOT_FOUND");
   }
 
-  if (status === 429 || String(status) === "429" || message.includes("quota") || message.includes("Rate limit")) {
+  if (status === 429 || String(status) === "429" || lowerMessage.includes("quota") || lowerMessage.includes("rate limit") || lowerMessage.includes("too many requests")) {
     throw new GeminiError(i18n.t('rate_limit_error'), "RATE_LIMIT");
   }
 
-  if (status === 500 || String(status) === "500" || message.includes("INTERNAL")) {
+  if (status === 500 || String(status) === "500" || lowerMessage.includes("internal") || lowerMessage.includes("server error")) {
     throw new GeminiError(i18n.t('internal_server_error'), "INTERNAL_ERROR");
   }
 
-  if (status === 503 || String(status) === "503" || message.includes("high demand") || message.includes("UNAVAILABLE") || message.includes("Service Unavailable")) {
+  if (status === 503 || String(status) === "503" || lowerMessage.includes("high demand") || lowerMessage.includes("unavailable") || lowerMessage.includes("service unavailable") || lowerMessage.includes("overloaded")) {
     throw new GeminiError(i18n.t('service_unavailable_error'), "SERVICE_UNAVAILABLE");
   }
 
-  if (message.includes("network") || message.includes("fetch")) {
+  if (lowerMessage.includes("network") || lowerMessage.includes("fetch") || lowerMessage.includes("failed to fetch") || lowerMessage.includes("connection")) {
     throw new GeminiError(i18n.t('network_error'), "NETWORK_ERROR");
+  }
+
+  if (lowerMessage.includes("empty response") || lowerMessage.includes("no content")) {
+    throw new GeminiError(i18n.t('empty_response_error'), "EMPTY_RESPONSE");
   }
 
   throw new GeminiError(message, "UNKNOWN_ERROR", details);

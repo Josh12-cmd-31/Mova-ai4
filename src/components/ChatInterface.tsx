@@ -817,14 +817,26 @@ export default function ChatInterface({ initialMessages, onUpdateMessages, onOpe
                               <p key={i} className="mb-3 last:mb-0">{line}</p>
                             ))}
                           </div>
-                          <button
-                            onClick={() => handleRetry(msg.id)}
-                            disabled={isLoading}
-                            className="flex items-center gap-2 self-start px-3 py-1.5 bg-red-950/30 border border-red-900/50 rounded-lg text-[10px] font-bold uppercase tracking-wider text-red-400 hover:bg-red-900/40 transition-all disabled:opacity-50"
-                          >
-                            <RefreshCcw size={12} className={isLoading ? "animate-spin" : ""} />
-                            {t('retry')}
-                          </button>
+                          <div className="flex flex-wrap gap-2">
+                            <button
+                              onClick={() => handleRetry(msg.id)}
+                              disabled={isLoading}
+                              className="flex items-center gap-2 self-start px-3 py-1.5 bg-red-950/30 border border-red-900/50 rounded-lg text-[10px] font-bold uppercase tracking-wider text-red-400 hover:bg-red-900/40 transition-all disabled:opacity-50"
+                            >
+                              <RefreshCcw size={12} className={isLoading ? "animate-spin" : ""} />
+                              {t('retry')}
+                            </button>
+
+                            {msg.errorCode === 'AUTH_ERROR' && onOpenOrchestrationSettings && (
+                              <button
+                                onClick={onOpenOrchestrationSettings}
+                                className="flex items-center gap-2 self-start px-3 py-1.5 bg-zinc-800 border border-white/10 rounded-lg text-[10px] font-bold uppercase tracking-wider text-zinc-100 hover:bg-zinc-700 transition-all"
+                              >
+                                <Settings2 size={12} />
+                                {t('go_to_settings')}
+                              </button>
+                            )}
+                          </div>
                         </div>
                       ) : (
                         <>
@@ -1263,6 +1275,8 @@ export default function ChatInterface({ initialMessages, onUpdateMessages, onOpe
                           <button
                             onClick={() => {
                               setSelectedChatModel(model.id);
+                              setIsGenerationMode(false);
+                              setIsOrchestrationMode(false);
                               setIsMenuOpen(false);
                             }}
                             className={`w-full flex items-center justify-between p-3 rounded-xl border transition-all ${
@@ -1323,6 +1337,8 @@ export default function ChatInterface({ initialMessages, onUpdateMessages, onOpe
                           <button
                             onClick={() => {
                               setSelectedImageModel(model.id);
+                              setIsGenerationMode(true);
+                              setIsOrchestrationMode(false);
                               setIsMenuOpen(false);
                             }}
                             className={`w-full flex items-center justify-between p-3 rounded-xl border transition-all ${
@@ -1823,6 +1839,52 @@ export default function ChatInterface({ initialMessages, onUpdateMessages, onOpe
               accept="image/*,video/*,audio/*,application/pdf,text/*"
               className="hidden"
             />
+
+            {/* Active Mode Indicator */}
+            <div className="absolute -top-6 left-4 flex items-center gap-2">
+              <AnimatePresence mode="wait">
+                {isGenerationMode ? (
+                  <motion.div
+                    key="gen"
+                    initial={{ opacity: 0, y: 5 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -5 }}
+                    className="flex items-center gap-1.5 px-2 py-0.5 bg-emerald-500/10 border border-emerald-500/20 rounded-full"
+                  >
+                    <Sparkles size={10} className="text-emerald-500" />
+                    <span className="text-[9px] font-bold text-emerald-500 uppercase tracking-wider">
+                      {selectedImageModel.split('-')[0]} Visual Engine
+                    </span>
+                  </motion.div>
+                ) : isOrchestrationMode ? (
+                  <motion.div
+                    key="orch"
+                    initial={{ opacity: 0, y: 5 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -5 }}
+                    className="flex items-center gap-1.5 px-2 py-0.5 bg-indigo-500/10 border border-indigo-500/20 rounded-full"
+                  >
+                    <Layers size={10} className="text-indigo-500" />
+                    <span className="text-[9px] font-bold text-indigo-500 uppercase tracking-wider">
+                      Orchestration Active
+                    </span>
+                  </motion.div>
+                ) : (
+                  <motion.div
+                    key="chat"
+                    initial={{ opacity: 0, y: 5 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -5 }}
+                    className="flex items-center gap-1.5 px-2 py-0.5 bg-zinc-500/10 border border-zinc-500/20 rounded-full"
+                  >
+                    <Cpu size={10} className="text-zinc-500" />
+                    <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-wider">
+                      {selectedChatModel.includes('pro') ? 'Pro' : 'Flash'} Intelligence
+                    </span>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
             
             <textarea
               value={input}
