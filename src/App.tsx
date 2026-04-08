@@ -21,7 +21,8 @@ import {
   Download,
   Copy,
   Check,
-  Globe
+  Globe,
+  Trash2
 } from 'lucide-react';
 import ChatInterface from './components/ChatInterface';
 import { OrchestrationSettings } from './components/OrchestrationSettings';
@@ -48,7 +49,9 @@ import {
   setDoc, 
   doc, 
   orderBy,
-  getDocFromServer
+  getDocFromServer,
+  deleteDoc,
+  getDocs
 } from 'firebase/firestore';
 import { ChatSession, Message, SessionFile } from './types';
 
@@ -119,6 +122,7 @@ export default function App() {
   // Chat Sessions State
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [sessionToDelete, setSessionToDelete] = useState<string | null>(null);
 
   // Auth Form State
   const [isSignUp, setIsSignUp] = useState(false);
@@ -323,6 +327,36 @@ export default function App() {
       await setDoc(doc(db, 'sessions', sessionId), updatedSession);
     } catch (error) {
       handleFirestoreError(error, OperationType.WRITE, `sessions/${sessionId}`);
+    }
+  };
+
+  const deleteSession = async (sessionId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!user) return;
+    
+    try {
+      // 1. Delete associated files
+      const filesQuery = query(collection(db, 'session_files'), where('sessionId', '==', sessionId));
+      const filesSnapshot = await getDocs(filesQuery);
+      const deleteFilePromises = filesSnapshot.docs.map(fileDoc => deleteDoc(fileDoc.ref));
+      await Promise.all(deleteFilePromises);
+
+      // 2. Delete the session
+      await deleteDoc(doc(db, 'sessions', sessionId));
+      
+      setSessionToDelete(null);
+
+      if (activeSessionId === sessionId) {
+        const remainingSessions = sessions.filter(s => s.id !== sessionId);
+        if (remainingSessions.length > 0) {
+          setActiveSessionId(remainingSessions[0].id);
+        } else {
+          setActiveSessionId(null);
+          createNewChat();
+        }
+      }
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, `sessions/${sessionId}`);
     }
   };
 
@@ -681,21 +715,56 @@ export default function App() {
           
           <div className="space-y-1">
             {sessions.map(session => (
-              <button 
-                key={session.id}
-                onClick={() => {
-                  setActiveSessionId(session.id);
-                  setIsSidebarOpen(false);
-                }}
-                className={`w-full flex items-center gap-3 p-2.5 rounded-lg transition-all text-sm ${
-                  activeSessionId === session.id 
-                    ? 'bg-zinc-800/50 text-zinc-100 font-medium border border-white/5' 
-                    : 'text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300'
-                }`}
-              >
-                <MessageSquare size={16} />
-                <span className="truncate text-left flex-1">{session.title}</span>
-              </button>
+              <div key={session.id} className="group relative">
+                <button 
+                  onClick={() => {
+                    setActiveSessionId(session.id);
+                    setIsSidebarOpen(false);
+                    setSessionToDelete(null);
+                  }}
+                  className={`w-full flex items-center gap-3 p-2.5 rounded-lg transition-all text-sm ${
+                    activeSessionId === session.id 
+                      ? 'bg-zinc-800/50 text-zinc-100 font-medium border border-white/5' 
+                      : 'text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300'
+                  }`}
+                >
+                  <MessageSquare size={16} />
+                  <span className="truncate text-left flex-1 pr-6">{session.title}</span>
+                </button>
+                
+                {sessionToDelete === session.id ? (
+                  <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1 bg-zinc-900 p-1 rounded-md border border-white/10 shadow-xl z-10">
+                    <button
+                      onClick={(e) => deleteSession(session.id, e)}
+                      className="p-1 text-red-400 hover:bg-red-400/10 rounded transition-colors"
+                      title={t('delete')}
+                    >
+                      <Check size={14} />
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSessionToDelete(null);
+                      }}
+                      className="p-1 text-zinc-500 hover:bg-zinc-800 rounded transition-colors"
+                      title={t('cancel')}
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSessionToDelete(session.id);
+                    }}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-zinc-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all rounded-md hover:bg-zinc-700/50"
+                    title={t('delete')}
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                )}
+              </div>
             ))}
           </div>
         </nav>
