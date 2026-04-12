@@ -5,6 +5,7 @@ export interface Agent {
   name: string;
   responsibilities: string;
   outputFormat: string;
+  toolUse?: string;
   model: string;
 }
 
@@ -57,6 +58,10 @@ ${agent.responsibilities}
 
 Output Format:
 ${agent.outputFormat}
+
+${agent.toolUse ? `Tool Use & Function Calling:
+${agent.toolUse}
+` : ''}
 
 ${i > 0 ? `Context from previous agents:\n${cumulativeContext}` : ''}
 

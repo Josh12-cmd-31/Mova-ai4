@@ -1,6 +1,6 @@
 {
   "name": "mova ai studio",
-  "description": "Advanced multimodal AI system for reasoning, image editing, and strategic analysis.",
+  "description": "Advanced multimodal AI system for reasoning, software engineering, and strategic analysis.",
   "requestFramePermissions": [
     "camera"
   ]

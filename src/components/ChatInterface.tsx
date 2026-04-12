@@ -26,8 +26,17 @@ import {
   MessageSquare,
   ChevronDown,
   Settings2,
-  Globe
+  Globe,
+  Copy,
+  Check,
+  Play,
+  Eye,
+  EyeOff
 } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import { LiveProvider, LiveError, LivePreview } from 'react-live';
 import { chatWithGemini, analyzeFile, GeminiError } from '../services/gemini';
 import { OrchestrationService, OrchestrationConfig } from '../services/orchestrationService';
 import { Message, SessionFile } from '../types';
@@ -205,16 +214,42 @@ export default function ChatInterface({ initialMessages, onUpdateMessages, onOpe
     }
 
     window.speechSynthesis.cancel();
+
+    // Strip markdown for cleaner speech
+    const cleanText = text
+      .replace(/```[\s\S]*?```/g, t('code_block_omitted')) // Skip large code blocks
+      .replace(/`([^`]+)`/g, '$1') // Inline code
+      .replace(/(\*\*|__)(.*?)\1/g, '$2') // Bold
+      .replace(/(\*|_)(.*?)\1/g, '$2') // Italic
+      .replace(/\[(.*?)\]\(.*?\)/g, '$1') // Links
+      .replace(/#{1,6}\s+/g, '') // Headers
+      .replace(/>\s+/g, '') // Blockquotes
+      .trim();
+
     const getLanguageCode = () => {
-      switch (i18n.language) {
+      const lang = i18n.language.split('-')[0];
+      switch (lang) {
         case 'es': return 'es-ES';
         case 'fr': return 'fr-FR';
+        case 'de': return 'de-DE';
+        case 'it': return 'it-IT';
+        case 'pt': return 'pt-PT';
+        case 'ja': return 'ja-JP';
+        case 'ko': return 'ko-KR';
+        case 'zh': return 'zh-CN';
         default: return 'en-US';
       }
     };
 
-    const utterance = new SpeechSynthesisUtterance(text);
+    const utterance = new SpeechSynthesisUtterance(cleanText);
     utterance.lang = getLanguageCode();
+    
+    // Try to find a better voice
+    const voices = window.speechSynthesis.getVoices();
+    const preferredVoice = voices.find(v => v.lang.startsWith(utterance.lang) && v.name.includes('Google')) || 
+                          voices.find(v => v.lang.startsWith(utterance.lang));
+    if (preferredVoice) utterance.voice = preferredVoice;
+
     utterance.onend = () => setSpeakingMsgId(null);
     utterance.onerror = () => setSpeakingMsgId(null);
     
@@ -574,24 +609,133 @@ export default function ChatInterface({ initialMessages, onUpdateMessages, onOpe
                             </div>
                           )}
                           <div className="prose prose-sm max-w-none prose-zinc leading-relaxed">
-                            {msg.content.split('\n').map((line, i, arr) => (
-                              <p key={i} className="mb-3 last:mb-0">
-                                {line}
-                                {i === arr.length - 1 && msg.role === 'assistant' && !msg.isError && (
-                                  <button
-                                    onClick={() => handleSpeak(msg.content, msg.id)}
-                                    className={`inline-flex items-center justify-center ml-2 p-1 rounded-md transition-all align-middle ${
-                                      speakingMsgId === msg.id 
-                                        ? 'bg-zinc-100 text-zinc-900' 
-                                        : 'text-zinc-500 hover:text-zinc-300'
-                                    }`}
-                                    title={speakingMsgId === msg.id ? t('stop_speaking') : t('read_aloud')}
-                                  >
-                                    {speakingMsgId === msg.id ? <VolumeX size={12} /> : <Volume2 size={12} />}
-                                  </button>
-                                )}
-                              </p>
-                            ))}
+                            <ReactMarkdown
+                              components={{
+                                code({ node, inline, className, children, ...props }: any) {
+                                  const match = /language-(\w+)/.exec(className || '');
+                                  const [copied, setCopied] = useState(false);
+                                  const [showPreview, setShowPreview] = useState(false);
+                                  const lang = match ? match[1] : '';
+                                  const isPreviewable = ['jsx', 'tsx', 'html', 'react'].includes(lang.toLowerCase());
+
+                                  const handleCopy = () => {
+                                    const codeString = String(children).replace(/\n$/, '');
+                                    navigator.clipboard.writeText(codeString);
+                                    setCopied(true);
+                                    setTimeout(() => setCopied(false), 2000);
+                                  };
+
+                                  const codeContent = String(children).replace(/\n$/, '');
+
+                                  return !inline && match ? (
+                                    <div className="relative group my-4">
+                                      <div className="absolute right-2 top-2 z-10 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                        {isPreviewable && (
+                                          <button
+                                            onClick={() => setShowPreview(!showPreview)}
+                                            className={`p-1.5 rounded-md border border-white/10 transition-all ${
+                                              showPreview 
+                                                ? 'bg-emerald-500 text-white border-emerald-400' 
+                                                : 'bg-zinc-800/80 text-zinc-400 hover:text-white hover:bg-zinc-700'
+                                            }`}
+                                            title={showPreview ? t('hide_preview') : t('show_preview')}
+                                          >
+                                            {showPreview ? <EyeOff size={14} /> : <Eye size={14} />}
+                                          </button>
+                                        )}
+                                        <button
+                                          onClick={handleCopy}
+                                          className="p-1.5 bg-zinc-800/80 hover:bg-zinc-700 rounded-md border border-white/10 text-zinc-400 hover:text-white transition-all"
+                                          title={t('copy')}
+                                        >
+                                          {copied ? <Check size={14} className="text-green-500" /> : <Copy size={14} />}
+                                        </button>
+                                      </div>
+
+                                      {showPreview && isPreviewable ? (
+                                        <div className="rounded-xl overflow-hidden border border-white/10 bg-white mb-2">
+                                          <div className="bg-zinc-100 px-4 py-2 border-b border-zinc-200 flex items-center justify-between">
+                                            <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">{t('preview')}</span>
+                                            <div className="flex gap-1.5">
+                                              <div className="w-2 h-2 rounded-full bg-red-400" />
+                                              <div className="w-2 h-2 rounded-full bg-amber-400" />
+                                              <div className="w-2 h-2 rounded-full bg-emerald-400" />
+                                            </div>
+                                          </div>
+                                          <div className="p-4 min-h-[100px] overflow-auto">
+                                            {lang.toLowerCase() === 'html' ? (
+                                              <iframe
+                                                srcDoc={codeContent}
+                                                title="HTML Preview"
+                                                className="w-full border-none min-h-[200px]"
+                                                sandbox="allow-scripts"
+                                              />
+                                            ) : (
+                                              <LiveProvider code={codeContent} noInline={codeContent.includes('render(')}>
+                                                <LivePreview />
+                                                <LiveError className="text-xs text-red-500 mt-2 p-2 bg-red-50 rounded border border-red-100" />
+                                              </LiveProvider>
+                                            )}
+                                          </div>
+                                        </div>
+                                      ) : null}
+
+                                      <SyntaxHighlighter
+                                        style={vscDarkPlus}
+                                        language={match[1]}
+                                        PreTag="div"
+                                        className="rounded-xl !bg-zinc-950 !p-4 border border-white/5"
+                                        {...props}
+                                      >
+                                        {codeContent}
+                                      </SyntaxHighlighter>
+                                    </div>
+                                  ) : (
+                                    <code className={`${className} bg-zinc-800 px-1.5 py-0.5 rounded text-zinc-300 font-mono text-[0.9em]`} {...props}>
+                                      {children}
+                                    </code>
+                                  );
+                                },
+                                p({ children }) {
+                                  return <p className="mb-3 last:mb-0">{children}</p>;
+                                },
+                                ul({ children }) {
+                                  return <ul className="list-disc pl-4 mb-3 space-y-1">{children}</ul>;
+                                },
+                                ol({ children }) {
+                                  return <ol className="list-decimal pl-4 mb-3 space-y-1">{children}</ol>;
+                                },
+                                h1({ children }) {
+                                  return <h1 className="text-xl font-bold mb-4 mt-6 text-white">{children}</h1>;
+                                },
+                                h2({ children }) {
+                                  return <h2 className="text-lg font-bold mb-3 mt-5 text-white">{children}</h2>;
+                                },
+                                h3({ children }) {
+                                  return <h3 className="text-base font-bold mb-2 mt-4 text-white">{children}</h3>;
+                                },
+                                blockquote({ children }) {
+                                  return <blockquote className="border-l-2 border-zinc-700 pl-4 italic my-4 text-zinc-400">{children}</blockquote>;
+                                }
+                              }}
+                            >
+                              {msg.content}
+                            </ReactMarkdown>
+                            {msg.role === 'assistant' && !msg.isError && (
+                              <div className="mt-2 flex justify-end">
+                                <button
+                                  onClick={() => handleSpeak(msg.content, msg.id)}
+                                  className={`inline-flex items-center justify-center p-1 rounded-md transition-all ${
+                                    speakingMsgId === msg.id 
+                                      ? 'bg-zinc-100 text-zinc-900' 
+                                      : 'text-zinc-500 hover:text-zinc-300'
+                                  }`}
+                                  title={speakingMsgId === msg.id ? t('stop_speaking') : t('read_aloud')}
+                                >
+                                  {speakingMsgId === msg.id ? <VolumeX size={12} /> : <Volume2 size={12} />}
+                                </button>
+                              </div>
+                            )}
                           </div>
                         </>
                       )}

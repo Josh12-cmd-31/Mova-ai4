@@ -34,6 +34,7 @@ interface Agent {
   name: string;
   responsibilities: string;
   outputFormat: string;
+  toolUse?: string;
   model: string;
 }
 
@@ -70,6 +71,7 @@ const DEFAULT_AGENTS: Agent[] = [
     name: 'Request Analyzer',
     responsibilities: 'Clarify objective, identify domain, extract constraints, and reformulate task into a structured brief.',
     outputFormat: '1. Interpreted Objective\n2. Key Variables\n3. Constraints\n4. Required Output Format',
+    toolUse: '',
     model: 'gemini-3.1-pro-preview'
   },
   {
@@ -77,6 +79,7 @@ const DEFAULT_AGENTS: Agent[] = [
     name: 'Research & Generation',
     responsibilities: 'Perform deep reasoning, generate solution using structured thinking, and provide draft output.',
     outputFormat: '1. Approach Used\n2. Step-by-Step Reasoning\n3. Draft Output',
+    toolUse: '',
     model: 'gemini-3.1-pro-preview'
   },
   {
@@ -84,6 +87,7 @@ const DEFAULT_AGENTS: Agent[] = [
     name: 'Validation Auditor',
     responsibilities: 'Check logical consistency, detect contradictions, and ensure smooth transitions.',
     outputFormat: '1. Detected Issues\n2. Corrections Made\n3. Reliability Assessment',
+    toolUse: '',
     model: 'gemini-3.1-pro-preview'
   },
   {
@@ -91,6 +95,7 @@ const DEFAULT_AGENTS: Agent[] = [
     name: 'Final Verification',
     responsibilities: 'Final fact-check, assess edge cases, and deliver refined final output.',
     outputFormat: '1. Final Answer\n2. Verification Summary\n3. Final Confidence Score',
+    toolUse: '',
     model: 'gemini-3.1-pro-preview'
   }
 ];
@@ -196,6 +201,7 @@ export const OrchestrationSettings: React.FC = () => {
       name: t('new_agent'),
       responsibilities: '',
       outputFormat: '',
+      toolUse: '',
       model: 'gemini-3.1-pro-preview'
     };
     setSelectedConfig({
@@ -426,6 +432,18 @@ export const OrchestrationSettings: React.FC = () => {
                           placeholder={t('output_format_placeholder')}
                         />
                       </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">
+                        {t('agent_tool_use')}
+                      </label>
+                      <textarea
+                        value={agent.toolUse || ''}
+                        onChange={(e) => updateAgent(agent.id, { toolUse: e.target.value })}
+                        className="w-full bg-zinc-900 border border-white/5 rounded-xl p-3 text-xs text-zinc-300 focus:border-emerald-500/50 focus:ring-0 transition-all min-h-[80px] font-mono"
+                        placeholder={t('tool_use_placeholder')}
+                      />
                     </div>
 
                     <div className="flex items-center gap-4">
