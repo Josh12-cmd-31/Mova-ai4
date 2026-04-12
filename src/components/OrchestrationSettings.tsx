@@ -100,6 +100,39 @@ const DEFAULT_AGENTS: Agent[] = [
   }
 ];
 
+const PRESETS = {
+  creative_writer: {
+    id: 'creative_writer',
+    name: 'Creative Writing Suite',
+    globalContext: 'You are a creative writing collective. Focus on evocative language, deep character development, and narrative rhythm.',
+    agents: [
+      { id: 'cw1', name: 'Plot Architect', responsibilities: 'Outline the narrative arc, identify themes, and set the emotional tone.', outputFormat: '1. Narrative Arc\n2. Core Themes\n3. Emotional Beats', toolUse: '', model: 'gemini-3.1-pro-preview' },
+      { id: 'cw2', name: 'Character Specialist', responsibilities: 'Develop character backstories, motivations, and unique voices.', outputFormat: '1. Character Profiles\n2. Dialogue Samples\n3. Internal Monologue', toolUse: '', model: 'gemini-3.1-pro-preview' },
+      { id: 'cw3', name: 'Stylistic Editor', responsibilities: 'Refine the prose, enhance imagery, and ensure consistent pacing.', outputFormat: '1. Refined Prose\n2. Sensory Details\n3. Pacing Analysis', toolUse: '', model: 'gemini-3.1-pro-preview' }
+    ]
+  },
+  technical_expert: {
+    id: 'technical_expert',
+    name: 'Technical Documentation Team',
+    globalContext: 'You are a technical documentation team. Focus on clarity, precision, and comprehensive coverage of technical concepts.',
+    agents: [
+      { id: 'te1', name: 'Tech Researcher', responsibilities: 'Extract technical specifications, identify edge cases, and clarify complex logic.', outputFormat: '1. Tech Specs\n2. Edge Cases\n3. Logic Flow', toolUse: '', model: 'gemini-3.1-pro-preview' },
+      { id: 'te2', name: 'Doc Writer', responsibilities: 'Draft clear, concise documentation following industry standards (e.g., OpenAPI, Markdown).', outputFormat: '1. Draft Documentation\n2. Code Examples\n3. Troubleshooting Guide', toolUse: '', model: 'gemini-3.1-pro-preview' },
+      { id: 'te3', name: 'Accuracy Auditor', responsibilities: 'Verify all technical claims, check for terminology consistency, and ensure readability.', outputFormat: '1. Verification Report\n2. Terminology Check\n3. Readability Score', toolUse: '', model: 'gemini-3.1-pro-preview' }
+    ]
+  },
+  code_assistant: {
+    id: 'code_assistant',
+    name: 'Software Engineering Squad',
+    globalContext: 'You are a software engineering squad. Focus on robust architecture, clean code, and comprehensive testing strategies.',
+    agents: [
+      { id: 'sa1', name: 'System Architect', responsibilities: 'Design the overall structure, select patterns, and define interfaces.', outputFormat: '1. Architecture Diagram (Text)\n2. Design Patterns\n3. API Interfaces', toolUse: '', model: 'gemini-3.1-pro-preview' },
+      { id: 'sa2', name: 'Implementation Dev', responsibilities: 'Write clean, performant, and well-documented code based on the architecture.', outputFormat: '1. Source Code\n2. Implementation Notes\n3. Dependency List', toolUse: '', model: 'gemini-3.1-pro-preview' },
+      { id: 'sa3', name: 'QA Engineer', responsibilities: 'Write unit/integration tests, identify security risks, and suggest optimizations.', outputFormat: '1. Test Suite\n2. Security Audit\n3. Optimization Tips', toolUse: '', model: 'gemini-3.1-pro-preview' }
+    ]
+  }
+};
+
 export const OrchestrationSettings: React.FC = () => {
   const { t } = useTranslation();
   const [configs, setConfigs] = useState<OrchestrationConfig[]>([]);
@@ -226,6 +259,19 @@ export const OrchestrationSettings: React.FC = () => {
     });
   };
 
+  const applyPreset = (presetKey: keyof typeof PRESETS) => {
+    if (!selectedConfig) return;
+    const preset = PRESETS[presetKey];
+    if (window.confirm(t('confirm_apply_preset'))) {
+      setSelectedConfig({
+        ...selectedConfig,
+        name: preset.name,
+        globalContext: preset.globalContext,
+        agents: preset.agents.map(a => ({ ...a, id: Date.now().toString() + Math.random() }))
+      });
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center p-12">
@@ -341,6 +387,26 @@ export const OrchestrationSettings: React.FC = () => {
                 />
               </div>
               <div className="flex items-center gap-3">
+                <div className="flex items-center bg-zinc-800 rounded-xl p-1 border border-white/5">
+                  <button
+                    onClick={() => applyPreset('creative_writer')}
+                    className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-zinc-400 hover:text-white transition-colors"
+                  >
+                    {t('preset_creative')}
+                  </button>
+                  <button
+                    onClick={() => applyPreset('technical_expert')}
+                    className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-zinc-400 hover:text-white transition-colors"
+                  >
+                    {t('preset_technical')}
+                  </button>
+                  <button
+                    onClick={() => applyPreset('code_assistant')}
+                    className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-zinc-400 hover:text-white transition-colors"
+                  >
+                    {t('preset_code')}
+                  </button>
+                </div>
                 <button
                   onClick={() => setIsEditing(false)}
                   className="px-4 py-2 text-zinc-400 hover:text-white text-sm font-bold transition-colors"
