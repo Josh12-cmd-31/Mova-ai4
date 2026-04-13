@@ -29,3 +29,15 @@ export interface ChatSession {
   createdAt: number;
   updatedAt: number;
 }
+
+export interface UserProfile {
+  uid: string;
+  email: string;
+  displayName: string;
+  tokens: number;
+  isSubscribed: boolean;
+  plan?: 'free' | 'mova1' | 'mova4' | 'business';
+  subscriptionId?: string;
+  lastTokenReset: number;
+  createdAt: number;
+}

@@ -26,6 +26,7 @@ import {
 } from 'lucide-react';
 import ChatInterface from './components/ChatInterface';
 import { OrchestrationSettings } from './components/OrchestrationSettings';
+import SubscriptionModal from './components/SubscriptionModal';
 import { 
   auth, 
   googleProvider, 
@@ -51,9 +52,10 @@ import {
   orderBy,
   getDocFromServer,
   deleteDoc,
-  getDocs
+  getDocs,
+  updateDoc
 } from 'firebase/firestore';
-import { ChatSession, Message, SessionFile } from './types';
+import { ChatSession, Message, SessionFile, UserProfile } from './types';
 
 // Helper to remove undefined values for Firestore
 function sanitizeData(data: any): any {
@@ -123,6 +125,8 @@ export default function App() {
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [sessionToDelete, setSessionToDelete] = useState<string | null>(null);
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+  const [isSubscriptionModalOpen, setIsSubscriptionModalOpen] = useState(false);
 
   // Auth Form State
   const [isSignUp, setIsSignUp] = useState(false);
@@ -174,12 +178,54 @@ export default function App() {
   }, [user, user?.emailVerified]);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       setUser(currentUser);
+      if (currentUser) {
+        // Initialize or fetch user profile
+        const profileRef = doc(db, 'users', currentUser.uid);
+        try {
+          const profileSnap = await getDocFromServer(profileRef);
+          if (profileSnap.exists()) {
+            const data = profileSnap.data() as UserProfile;
+            
+            // Daily token reset logic
+            const now = new Date();
+            const lastReset = new Date(data.lastTokenReset);
+            if (now.toDateString() !== lastReset.toDateString()) {
+              const updatedProfile = {
+                ...data,
+                tokens: 1000,
+                lastTokenReset: Date.now()
+              };
+              await setDoc(profileRef, sanitizeData(updatedProfile));
+              setUserProfile(updatedProfile);
+            } else {
+              setUserProfile(data);
+            }
+          } else {
+            // New user registration
+            const newProfile: UserProfile = {
+              uid: currentUser.uid,
+              email: currentUser.email || '',
+              displayName: currentUser.displayName || '',
+              tokens: 1000,
+              isSubscribed: false,
+              lastTokenReset: Date.now(),
+              createdAt: Date.now()
+            };
+            await setDoc(profileRef, sanitizeData(newProfile));
+            setUserProfile(newProfile);
+          }
+        } catch (error) {
+          console.error("Error fetching user profile:", error);
+        }
+      } else {
+        setUserProfile(null);
+      }
       setLoading(false);
     });
     return () => unsubscribe();
-  }, []);
+  }, [t]);
 
   const createNewChat = async () => {
     if (!user) return;
@@ -238,6 +284,19 @@ export default function App() {
     if (!user) return;
     const session = sessions.find(s => s.id === sessionId);
     if (!session) return;
+
+    // Decrement tokens if the last message is from assistant and user is not subscribed
+    const lastMessage = messages[messages.length - 1];
+    if (lastMessage && lastMessage.role === 'assistant' && !lastMessage.isError && userProfile && !userProfile.isSubscribed) {
+      const newTokens = Math.max(0, userProfile.tokens - 10); // Assume 10 tokens per message for now
+      const userRef = doc(db, 'users', user.uid);
+      try {
+        await updateDoc(userRef, { tokens: newTokens });
+        setUserProfile(prev => prev ? { ...prev, tokens: newTokens } : null);
+      } catch (error) {
+        console.error("Error decrementing tokens:", error);
+      }
+    }
 
     let newTitle = session.title;
     if (session.title === t('new_chat')) {
@@ -709,8 +768,18 @@ export default function App() {
             <span>{t('new_chat')}</span>
           </button>
           
-          <div className="py-2 px-3">
+          <div className="py-2 px-3 flex items-center justify-between">
             <span className="text-[10px] font-bold text-zinc-600 uppercase tracking-widest">{t('chat_history')}</span>
+            {userProfile && (
+              <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-zinc-900 border border-white/5">
+                <Zap size={10} className={userProfile.isSubscribed ? "text-emerald-400" : "text-amber-400"} />
+                <span className="text-[10px] font-bold text-zinc-400">
+                  {userProfile.isSubscribed 
+                    ? (userProfile.plan === 'mova1' ? 'MOVA 1' : userProfile.plan === 'mova4' ? 'MOVA 4' : userProfile.plan === 'business' ? 'BIZ' : 'PRO')
+                    : userProfile.tokens}
+                </span>
+              </div>
+            )}
           </div>
           
           <div className="space-y-1">
@@ -903,6 +972,54 @@ export default function App() {
                   </form>
 
                   <div className="mt-8 pt-6 border-t border-white/5 space-y-4">
+                    <label className="text-xs font-bold text-zinc-600 uppercase tracking-widest">{t('subscription')}</label>
+                    <div className={`p-4 rounded-2xl border ${userProfile?.isSubscribed ? 'bg-emerald-500/5 border-emerald-500/20' : 'bg-zinc-950 border-white/5'}`}>
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${userProfile?.isSubscribed ? 'bg-emerald-500 text-white' : 'bg-zinc-800 text-zinc-500'}`}>
+                            <Zap size={20} />
+                          </div>
+                          <div>
+                            <p className="text-sm font-bold text-zinc-100">
+                              {userProfile?.isSubscribed 
+                                ? (userProfile.plan === 'mova1' ? 'Mova 1' : userProfile.plan === 'mova4' ? 'Mova 4' : userProfile.plan === 'business' ? 'Mova Business' : t('pro_plan'))
+                                : t('free_plan')}
+                            </p>
+                            <p className="text-[10px] text-zinc-500">
+                              {userProfile?.isSubscribed ? t('unlimited_access') : t('limited_access')}
+                            </p>
+                          </div>
+                        </div>
+                        {!userProfile?.isSubscribed && (
+                          <button
+                            onClick={() => {
+                              setIsSettingsOpen(false);
+                              setIsSubscriptionModalOpen(true);
+                            }}
+                            className="px-4 py-2 bg-zinc-100 text-zinc-900 rounded-xl text-xs font-bold hover:bg-white transition-all shadow-lg"
+                          >
+                            {t('upgrade')}
+                          </button>
+                        )}
+                      </div>
+                      {!userProfile?.isSubscribed && userProfile && (
+                        <div className="mt-4 pt-4 border-t border-white/5">
+                          <div className="flex justify-between text-[10px] font-bold uppercase tracking-widest mb-2">
+                            <span className="text-zinc-500">{t('tokens')}</span>
+                            <span className="text-zinc-300">{userProfile.tokens} / 1000</span>
+                          </div>
+                          <div className="h-1.5 w-full bg-zinc-900 rounded-full overflow-hidden">
+                            <div 
+                              className="h-full bg-amber-500 transition-all duration-500" 
+                              style={{ width: `${(userProfile.tokens / 1000) * 100}%` }}
+                            />
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="mt-8 pt-6 border-t border-white/5 space-y-4">
                     <label className="text-xs font-bold text-zinc-600 uppercase tracking-widest">{t('chat_history')}</label>
                     <div className="grid grid-cols-1 gap-2">
                       <button
@@ -985,6 +1102,8 @@ export default function App() {
                   setSettingsTab('orchestration');
                   setIsSettingsOpen(true);
                 }}
+                userProfile={userProfile}
+                onUpgrade={() => setIsSubscriptionModalOpen(true)}
               />
             </div>
           ) : (
@@ -994,6 +1113,19 @@ export default function App() {
           )}
         </div>
       </main>
+      {/* Subscription Modal */}
+      <SubscriptionModal
+        isOpen={isSubscriptionModalOpen}
+        onClose={() => setIsSubscriptionModalOpen(false)}
+        userEmail={user?.email || ''}
+        onSuccess={() => {
+          // Profile will be updated by the modal itself in Firestore, 
+          // and the onAuthStateChanged listener will pick it up or we can manually update
+          if (userProfile) {
+            setUserProfile({ ...userProfile, isSubscribed: true });
+          }
+        }}
+      />
     </div>
   );
 }

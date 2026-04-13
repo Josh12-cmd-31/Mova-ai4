@@ -39,7 +39,7 @@ import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { LiveProvider, LiveError, LivePreview } from 'react-live';
 import { chatWithGemini, analyzeFile, GeminiError } from '../services/gemini';
 import { OrchestrationService, OrchestrationConfig } from '../services/orchestrationService';
-import { Message, SessionFile } from '../types';
+import { Message, SessionFile, UserProfile } from '../types';
 import { db, handleFirestoreError, OperationType, auth } from '../services/firebase';
 import { getDoc, doc, collection, query, where, onSnapshot } from 'firebase/firestore';
 
@@ -78,9 +78,17 @@ interface ChatInterfaceProps {
   initialMessages: Message[];
   onUpdateMessages: (messages: Message[]) => void;
   onOpenOrchestrationSettings?: () => void;
+  userProfile: UserProfile | null;
+  onUpgrade: () => void;
 }
 
-export default function ChatInterface({ initialMessages, onUpdateMessages, onOpenOrchestrationSettings }: ChatInterfaceProps): React.JSX.Element {
+export default function ChatInterface({ 
+  initialMessages, 
+  onUpdateMessages, 
+  onOpenOrchestrationSettings,
+  userProfile,
+  onUpgrade
+}: ChatInterfaceProps): React.JSX.Element {
   const { t, i18n } = useTranslation();
   const [messages, setMessages] = useState<Message[]>(initialMessages);
   const [input, setInput] = useState('');
@@ -163,6 +171,12 @@ export default function ChatInterface({ initialMessages, onUpdateMessages, onOpe
   const handleSubmit = async (e?: React.FormEvent) => {
     e?.preventDefault();
     if ((!input.trim() && !selectedFile) || isLoading) return;
+
+    // Token check
+    if (userProfile && !userProfile.isSubscribed && userProfile.tokens <= 0) {
+      onUpgrade();
+      return;
+    }
 
     const userMessage: Message = {
       id: Date.now().toString(),
